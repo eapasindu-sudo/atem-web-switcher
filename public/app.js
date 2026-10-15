@@ -18,8 +18,48 @@
   let dragging = false
   let pendingPos = null
 
+  const SWITCHING = ['program', 'preview', 'cut', 'auto', 'tbar']
   function send(obj) {
+    if (locked && SWITCHING.includes(obj.cmd)) return
     if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj))
+  }
+
+  // ---- Lock: tap to lock, hold 1 second to unlock ----
+  let locked = false
+  let hintTimer = null
+  function setLocked(on) {
+    locked = on
+    document.body.classList.toggle('locked', on)
+    $('lock').setAttribute('aria-pressed', String(on))
+    $('lockText').textContent = on ? 'Unlock' : 'Lock'
+    $('lock').title = on ? 'Hold to unlock' : 'Lock buttons'
+    if (!on) $('lockedHint').hidden = true
+    try { localStorage.setItem('locked', on ? '1' : '0') } catch {}
+  }
+  function showLockedHint() {
+    $('lockedHint').hidden = false
+    clearTimeout(hintTimer)
+    hintTimer = setTimeout(() => { $('lockedHint').hidden = true }, 2500)
+  }
+  try { if (localStorage.getItem('locked') === '1') setLocked(true) } catch {}
+  {
+    const btn = $('lock')
+    let holdTimer = null
+    const cancelHold = () => { clearTimeout(holdTimer); holdTimer = null; btn.classList.remove('holding') }
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault()
+      if (!locked) return setLocked(true)
+      btn.classList.add('holding')
+      holdTimer = setTimeout(() => { cancelHold(); setLocked(false) }, 1000)
+    })
+    btn.addEventListener('pointerup', () => { if (holdTimer) { cancelHold(); showLockedHint() } })
+    btn.addEventListener('pointerleave', cancelHold)
+    btn.addEventListener('pointercancel', cancelHold)
+    btn.addEventListener('contextmenu', (e) => e.preventDefault())
+    // a tap on the locked controls explains how to unlock
+    document.querySelector('main').parentElement.addEventListener('pointerdown', (e) => {
+      if (locked && e.target.closest && !e.target.closest('header')) showLockedHint()
+    })
   }
 
   function connectSocket() {
@@ -180,7 +220,7 @@
 
   // Keyboard: 1-8 = preview, Shift+1-8 = program, Space = CUT, Enter = AUTO
   document.addEventListener('keydown', (e) => {
-    if (e.target === ipInput) return
+    if (e.target === ipInput || locked) return
     const m = e.code.match(/^(?:Digit|Numpad)([1-8])$/)
     if (m) {
       send({ cmd: e.shiftKey ? 'program' : 'preview', input: Number(m[1]) })

@@ -22,6 +22,10 @@
     <button type="submit">Connect</button>
   </form>
   <div id="status" class="status off">Not connected</div>
+  <button id="lock" class="lock" title="Lock buttons" aria-pressed="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path class="shackle" d="M7 11V8a5 5 0 0 1 10 0v3"/><rect x="5" y="11" width="14" height="10" rx="2"/></svg>
+    <span id="lockText">Lock</span>
+  </button>
   <button id="fullscreen" title="Fullscreen">⛶</button>
 </header>
 
@@ -56,6 +60,8 @@
     </div>
   </section>
 </main>
+
+<div id="lockedHint" hidden>Locked. Hold the <b>lock button</b> for 1 second to unlock.</div>
 
 <div id="rotate">
   <div>⟳</div>

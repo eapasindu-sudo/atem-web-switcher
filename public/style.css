@@ -216,3 +216,31 @@ body { padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) en
 #installHint[hidden] { display: none; }
 #installHint span { flex: 1; }
 #installHint button { background: none; border: 0; color: inherit; font-size: 16px; cursor: pointer; padding: 2px 6px; }
+
+/* Lock: stops accidental taps; hold to unlock */
+#fullscreen { margin-left: 0; }
+.lock {
+  margin-left: auto;
+  position: relative; overflow: hidden;
+  display: flex; align-items: center; gap: 6px;
+  background: #3a3a3c; color: #fff; border: 0; border-radius: 6px;
+  padding: 8px 12px; font-size: 15px; font-weight: 600; cursor: pointer;
+  touch-action: none;
+}
+.lock svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
+.lock .shackle { transition: transform .15s; }
+.lock::before {
+  content: ""; position: absolute; inset: 0; background: rgba(255,255,255,.25);
+  transform: scaleX(0); transform-origin: left;
+}
+.lock.holding::before { transform: scaleX(1); transition: transform 1s linear; }
+body.locked .lock { background: var(--amber); color: #000; }
+body:not(.locked) .lock .shackle { transform: translate(4px, -2px) rotate(15deg); transform-origin: 17px 11px; }
+body.locked main { pointer-events: none; opacity: .55; filter: saturate(.7); }
+#lockedHint {
+  position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+  background: #2a2208; color: var(--amber); border: 1px solid #5a4510;
+  font-size: 14px; padding: 8px 14px; border-radius: 20px; z-index: 5; white-space: nowrap;
+}
+#lockedHint[hidden] { display: none; }
+@media (max-height: 420px) { .lock span { display: none; } }
