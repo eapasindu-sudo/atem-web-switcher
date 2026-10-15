@@ -1,0 +1,100 @@
+:root {
+  color-scheme: dark;
+  --bg: #121212;
+  --panel: #1c1c1e;
+  --line: #2e2e31;
+  --text: #ececec;
+  --muted: #9a9aa0;
+  --red: #e0201b;
+  --green: #1fbf3a;
+  --amber: #f2a20c;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.45 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  display: flex;
+  flex-direction: column;
+}
+header, footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  background: var(--panel);
+}
+header { border-bottom: 1px solid #000; }
+footer { border-top: 1px solid #000; margin-top: auto; }
+.brand { font-weight: 800; letter-spacing: 1px; font-size: 16px; }
+.brand span { font-weight: 400; color: var(--muted); }
+.pill { margin-left: auto; font-size: 12px; padding: 4px 10px; border-radius: 20px; }
+.pill.on { background: #10331a; color: #6fe38a; }
+.pill.wait { background: #3a2c10; color: var(--amber); }
+.pill.off { background: #3a1515; color: #ff8a8a; }
+
+main {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+  padding: 18px;
+}
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; min-width: 0; }
+.card.wide { grid-column: 1 / -1; }
+h2 { margin: 0 0 12px; font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.muted { color: var(--muted); }
+.big { font-size: 20px; font-weight: 700; }
+
+.status-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.dot { width: 16px; height: 16px; border-radius: 50%; flex: none; }
+.dot.on { background: var(--green); box-shadow: 0 0 10px var(--green); }
+.dot.wait { background: var(--amber); animation: pulse 1s infinite; }
+.dot.off { background: #555; }
+@keyframes pulse { 50% { opacity: .35; } }
+
+label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.ip-row { display: flex; gap: 8px; }
+input {
+  flex: 1; min-width: 0;
+  background: #000; color: #fff;
+  border: 1px solid #444; border-radius: 8px;
+  padding: 10px 12px; font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+button {
+  background: #3a3a3c; color: #fff; border: 0; border-radius: 8px;
+  padding: 10px 16px; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+button:hover { filter: brightness(1.15); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+button.primary { background: var(--green); color: #04150a; }
+button.danger { background: #4a1716; color: #ffb3b0; }
+.error { color: #ff8a8a; font-size: 12px; margin-top: 6px; }
+
+.tally { display: flex; gap: 12px; margin-top: 16px; }
+.tally > div { flex: 1; display: flex; align-items: center; justify-content: space-between; background: #111; border-radius: 8px; padding: 8px 12px; }
+.tally b { font-size: 24px; font-variant-numeric: tabular-nums; }
+.tag { font-size: 11px; font-weight: 800; letter-spacing: 1.5px; }
+.tag.red { color: var(--red); }
+.tag.green { color: var(--green); }
+
+.url { display: flex; gap: 14px; align-items: center; margin-top: 10px; }
+.url img { width: 132px; height: 132px; border-radius: 8px; background: #fff; flex: none; }
+.url a { color: #fff; font-size: 18px; font-weight: 700; word-break: break-all; text-decoration: none; }
+.url small { display: block; color: var(--muted); margin-top: 4px; }
+
+.count { background: #333; color: #fff; border-radius: 10px; padding: 1px 8px; font-size: 12px; letter-spacing: 0; }
+.count.has { background: var(--green); color: #04150a; }
+#phones { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+#phones li { display: flex; align-items: center; gap: 10px; background: #111; border-radius: 8px; padding: 8px 12px; }
+#phones li .dot { width: 10px; height: 10px; }
+#phones li span:last-child { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+#dataDir { font-size: 11px; flex: 1; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+#stopped {
+  position: fixed; inset: 0; background: var(--bg);
+  display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px;
+}
+#stopped[hidden] { display: none; }

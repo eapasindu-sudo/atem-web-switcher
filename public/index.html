@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ATEM">
+<meta name="theme-color" content="#111">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" href="icon.png">
+<link rel="manifest" href="manifest.json">
+<title>ATEM Web Switcher</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div class="brand">ATEM <span id="model">Mini Extreme</span></div>
+  <form id="connectForm">
+    <input id="ip" placeholder="ATEM IP e.g. 192.168.1.240" inputmode="decimal" autocomplete="off">
+    <button type="submit">Connect</button>
+  </form>
+  <div id="status" class="status off">Not connected</div>
+  <button id="fullscreen" title="Fullscreen">⛶</button>
+</header>
+
+<div id="installHint" hidden>
+  <span>To open this like an app next time, tap <b>Share</b> then <b>Add to Home Screen</b>.</span>
+  <button id="hintClose" aria-label="Close">✕</button>
+</div>
+
+<main>
+  <section class="buses">
+    <div class="bus">
+      <div class="bus-label program-label">PROGRAM</div>
+      <div id="programRow" class="row"></div>
+    </div>
+    <div class="bus">
+      <div class="bus-label preview-label">PREVIEW</div>
+      <div id="previewRow" class="row"></div>
+    </div>
+  </section>
+
+  <section class="transition">
+    <div class="trans-buttons">
+      <button id="cut" class="tbtn">CUT</button>
+      <button id="auto" class="tbtn">AUTO</button>
+    </div>
+    <div class="tbar-wrap">
+      <div class="tbar-label">T-BAR</div>
+      <div id="tbar" class="tbar">
+        <div id="tbarFill" class="tbar-fill"></div>
+        <div id="tbarHandle" class="tbar-handle"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="rotate">
+  <div>⟳</div>
+  <p>Please turn your device to landscape</p>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

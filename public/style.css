@@ -1,0 +1,218 @@
+:root {
+  --bg: #121212;
+  --panel: #1c1c1e;
+  --btn: #2c2c2e;
+  --btn-text: #d8d8d8;
+  --red: #e0201b;
+  --red-glow: rgba(224, 32, 27, 0.6);
+  --green: #1fbf3a;
+  --green-glow: rgba(31, 191, 58, 0.6);
+  --amber: #f2a20c;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: #eee;
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+  overflow: hidden;
+  touch-action: manipulation;
+}
+
+body { display: flex; flex-direction: column; }
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid #000;
+}
+.brand { font-weight: 800; letter-spacing: 1px; white-space: nowrap; }
+.brand span { font-weight: 400; color: #999; }
+#connectForm { display: flex; gap: 6px; flex: 1; max-width: 420px; }
+#connectForm input {
+  flex: 1; min-width: 0;
+  background: #000; color: #fff;
+  border: 1px solid #444; border-radius: 6px;
+  padding: 8px 10px; font-size: 15px;
+  user-select: text; -webkit-user-select: text;
+}
+header button {
+  background: #3a3a3c; color: #fff; border: 0; border-radius: 6px;
+  padding: 8px 14px; font-size: 15px; cursor: pointer;
+}
+.status { font-size: 13px; padding: 5px 10px; border-radius: 20px; white-space: nowrap; }
+.status.off { background: #3a1515; color: #ff8a8a; }
+.status.wait { background: #3a2c10; color: var(--amber); }
+.status.on { background: #10331a; color: #6fe38a; }
+#fullscreen { margin-left: auto; padding: 8px 12px; }
+
+main {
+  flex: 1;
+  display: flex;
+  gap: 14px;
+  padding: 14px;
+  min-height: 0;
+}
+
+.buses {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.bus { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.bus-label { font-size: 12px; font-weight: 700; letter-spacing: 2px; margin: 0 0 6px 2px; }
+.program-label { color: var(--red); }
+.preview-label { color: var(--green); }
+
+.row {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 10px;
+  min-height: 0;
+}
+
+.src {
+  min-height: 60px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--btn);
+  color: var(--btn-text);
+  cursor: pointer;
+  box-shadow: inset 0 -4px 0 rgba(0,0,0,.35);
+  transition: background .08s, box-shadow .08s;
+  overflow: hidden;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.src b { font-size: clamp(28px, 5vw, 64px); font-weight: 800; line-height: 1; }
+.src small {
+  font-size: clamp(9px, 1.1vw, 13px);
+  font-weight: 600;
+  opacity: .75;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.src:active { transform: translateY(1px); }
+.row.program .src.active { background: var(--red); color: #fff; box-shadow: 0 0 16px var(--red-glow); }
+.row.preview .src.active { background: var(--green); color: #fff; box-shadow: 0 0 16px var(--green-glow); }
+/* source currently in a transition: also on air */
+.row.preview .src.live { outline: 3px solid var(--red); outline-offset: -3px; }
+
+.transition {
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
+}
+.trans-buttons {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+  width: clamp(90px, 12vw, 140px);
+}
+.tbtn {
+  flex: 1;
+  max-height: 180px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--btn);
+  color: #fff;
+  font-size: clamp(16px, 2.2vw, 24px);
+  font-weight: 800;
+  letter-spacing: 1px;
+  cursor: pointer;
+  box-shadow: inset 0 -4px 0 rgba(0,0,0,.35);
+}
+.tbtn:active, .tbtn.flash { background: #fff; color: #000; }
+#auto.running { background: var(--red); box-shadow: 0 0 16px var(--red-glow); }
+
+.tbar-wrap { display: flex; flex-direction: column; align-items: center; width: clamp(70px, 9vw, 110px); }
+.tbar-label { font-size: 12px; font-weight: 700; letter-spacing: 2px; color: #999; }
+.tbar {
+  position: relative;
+  flex: 1;
+  width: 34px;
+  border-radius: 17px;
+  background: #000;
+  border: 1px solid #444;
+  touch-action: none;
+  cursor: grab;
+  margin: 17px 0;
+}
+.tbar-fill {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  border-radius: 17px;
+  background: linear-gradient(to top, var(--red), #ff6a3d);
+  height: 0%;
+}
+.tbar-handle {
+  position: absolute;
+  left: 50%;
+  width: clamp(64px, 8vw, 96px);
+  height: 34px;
+  transform: translate(-50%, 50%);
+  bottom: 0%;
+  border-radius: 8px;
+  background: linear-gradient(#e6e6e6, #9a9a9a);
+  box-shadow: 0 3px 8px rgba(0,0,0,.6);
+}
+.tbar-handle::after {
+  content: ""; position: absolute; left: 10%; right: 10%; top: 50%; height: 3px;
+  background: var(--red); transform: translateY(-50%); border-radius: 2px;
+}
+
+.disabled main { opacity: .45; pointer-events: none; }
+
+#rotate {
+  display: none;
+  position: fixed; inset: 0;
+  background: var(--bg);
+  z-index: 10;
+  align-items: center; justify-content: center; flex-direction: column;
+  text-align: center; padding: 20px;
+}
+#rotate div { font-size: 64px; }
+
+@media (orientation: portrait) and (max-width: 900px) {
+  #rotate { display: flex; }
+}
+
+@media (max-height: 420px) {
+  header { padding: 4px 10px; }
+  main { padding: 8px; gap: 10px; }
+  .buses { gap: 10px; }
+  .row { gap: 6px; }
+  .src { min-height: 40px; }
+  .src small { display: none; }
+}
+
+/* iPhone notch / home bar */
+body { padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); }
+
+/* IP is set from the PC app; the phone only shows the form when no IP is set yet */
+#connectForm[hidden] { display: none; }
+
+#installHint {
+  display: flex; align-items: center; gap: 10px;
+  background: #1d2a3a; color: #cfe3ff; font-size: 13px; padding: 6px 14px;
+}
+#installHint[hidden] { display: none; }
+#installHint span { flex: 1; }
+#installHint button { background: none; border: 0; color: inherit; font-size: 16px; cursor: pointer; padding: 2px 6px; }

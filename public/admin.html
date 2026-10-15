@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ATEM Switcher</title>
+<link rel="stylesheet" href="admin.css">
+</head>
+<body>
+<header>
+  <div class="brand">ATEM <span>Switcher</span></div>
+  <div id="serverPill" class="pill wait">Starting…</div>
+</header>
+
+<main>
+  <section class="card" id="atemCard">
+    <h2>ATEM switcher</h2>
+    <div class="status-row">
+      <span id="atemDot" class="dot off"></span>
+      <div>
+        <div id="atemStatus" class="big">Not connected</div>
+        <div id="atemModel" class="muted">Enter the ATEM's IP address below</div>
+      </div>
+    </div>
+    <form id="ipForm">
+      <label for="ipInput">ATEM IP address</label>
+      <div class="ip-row">
+        <input id="ipInput" placeholder="192.168.1.240" inputmode="decimal" autocomplete="off" spellcheck="false">
+        <button type="submit" class="primary">Connect</button>
+      </div>
+      <div id="ipError" class="error" hidden>That doesn't look like an IP address. Use 4 numbers like 192.168.1.240.</div>
+    </form>
+    <div class="tally">
+      <div><span class="tag red">PROGRAM</span><b id="pgm">–</b></div>
+      <div><span class="tag green">PREVIEW</span><b id="pvw">–</b></div>
+    </div>
+  </section>
+
+  <section class="card" id="phoneCard">
+    <h2>Open on your phone</h2>
+    <p class="muted">Connect the phone to the same Wi-Fi, then scan the code or type the address.</p>
+    <div id="urls"></div>
+  </section>
+
+  <section class="card wide">
+    <h2>Connected phones <span id="phoneCount" class="count">0</span></h2>
+    <ul id="phones"></ul>
+    <p id="noPhones" class="muted">No phone connected yet.</p>
+  </section>
+</main>
+
+<footer>
+  <button id="openLocal">Open switcher on this PC</button>
+  <span class="muted" id="dataDir"></span>
+  <button id="stop" class="danger">Stop server</button>
+</footer>
+
+<div id="stopped" hidden>
+  <div>
+    <h2>Server stopped</h2>
+    <p class="muted">Phones can no longer control the ATEM. Open ATEM Switcher again from the Start menu to restart it.</p>
+  </div>
+</div>
+
+<script src="admin.js"></script>
+</body>
+</html>
