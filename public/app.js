@@ -51,6 +51,7 @@
     for (const [row, bus] of [[programRow, 'program'], [previewRow, 'preview']]) {
       row.innerHTML = ''
       row.classList.add(bus)
+      row.style.gridTemplateColumns = `repeat(${sources.length}, 1fr)`
       for (const s of sources) {
         const b = document.createElement('button')
         b.className = 'src'
@@ -68,7 +69,13 @@
     }
   }
 
+  let pageVersion = null
   function render(msg) {
+    // the PC app was updated: reload so the phone gets the new page too
+    if (msg.version) {
+      if (pageVersion && msg.version !== pageVersion) return location.reload()
+      pageVersion = msg.version
+    }
     state = msg
     if (msg.ip && document.activeElement !== ipInput && !ipInput.value) ipInput.value = msg.ip
     // the ATEM IP is managed from the PC app; only ask on the phone when none is set

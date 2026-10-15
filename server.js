@@ -11,6 +11,10 @@ const express = require('express')
 const QRCode = require('qrcode')
 const { WebSocketServer } = require('ws')
 const { Atem } = require('atem-connection')
+const { version: VERSION } = require('./package.json')
+
+// Where the app looks for a newer version (installed .exe only)
+const UPDATE_URL = 'https://raw.githubusercontent.com/eapasindu-sudo/atem-web-switcher/main/version.json'
 
 const PORT = Number(process.env.PORT) || 3000
 let IS_EXE = false
@@ -48,8 +52,8 @@ if (IS_EXE) {
 	}
 }
 
-// Buttons shown on the bus rows (ATEM Mini Extreme HDMI inputs 1-8)
-const SOURCES = [1, 2, 3, 4, 5, 6, 7, 8].map((id) => ({ id, label: 'CAM ' + id }))
+const MIN_INPUTS = 4
+const MAX_INPUTS = 8
 
 function loadConfig() {
 	try {
@@ -78,6 +82,8 @@ function lanAddresses() {
 }
 
 const config = loadConfig()
+// 'auto' = number of HDMI inputs the ATEM reports, else a fixed 4..8 chosen on the PC
+if (!config.inputs) config.inputs = 'auto'
 let atem = null
 let atemIp = null
 let connected = false
@@ -115,15 +121,30 @@ function deviceName(ua = '') {
 	return 'Browser'
 }
 
+// HDMI inputs the connected ATEM has (Mini/Pro: 4, Extreme: 8)
+function detectedInputs() {
+	const inputs = atem && connected && atem.state && atem.state.inputs
+	if (!inputs) return null
+	const count = Object.values(inputs).filter((i) => i && i.internalPortType === 0 && i.inputId >= 1 && i.inputId <= 40).length
+	return count || null
+}
+
+function inputCount() {
+	const n = config.inputs === 'auto' ? detectedInputs() || MAX_INPUTS : Number(config.inputs)
+	return Math.max(MIN_INPUTS, Math.min(MAX_INPUTS, n || MAX_INPUTS))
+}
+
 function snapshot() {
 	const state = atem && atem.state
 	const me = state && state.video && state.video.mixEffects[ME]
-	const sources = SOURCES.map((s) => {
-		const info = state && state.inputs && state.inputs[s.id]
-		return { id: s.id, label: (info && info.shortName) || s.label, longName: info ? info.longName : s.label }
-	})
+	const sources = []
+	for (let id = 1; id <= inputCount(); id++) {
+		const info = state && state.inputs && state.inputs[id]
+		sources.push({ id, label: (info && info.shortName) || 'CAM ' + id, longName: info ? info.longName : 'Camera ' + id })
+	}
 	return {
 		type: 'state',
+		version: VERSION,
 		ip: atemIp,
 		connected,
 		model: state && state.info && state.info.productIdentifier,
@@ -147,7 +168,18 @@ async function adminInfo() {
 	for (const c of clients.values()) {
 		if (c.role === 'controller') controllers.push({ ip: isLocal(c.ip) ? 'this PC' : c.ip.replace(/^::ffff:/, ''), device: c.device, since: c.since })
 	}
-	return { type: 'admin', urls, port: PORT, controllers, dataDir: DATA_DIR }
+	return {
+		type: 'admin',
+		urls,
+		port: PORT,
+		controllers,
+		dataDir: DATA_DIR,
+		version: VERSION,
+		inputsSetting: config.inputs,
+		inputsDetected: detectedInputs(),
+		update,
+		canUpdate: IS_EXE && process.platform === 'win32',
+	}
 }
 
 function broadcast() {
@@ -188,6 +220,7 @@ async function connectAtem(ip) {
 		connected = true
 		console.log(`Connected to ATEM at ${ip} (${a.state.info.productIdentifier || 'unknown model'})`)
 		broadcast()
+		broadcastAdmin().catch(() => {})
 	})
 	a.on('disconnected', () => {
 		connected = false
@@ -208,6 +241,15 @@ async function handleCommand(ws, msg) {
 		return broadcastAdmin()
 	}
 	if (msg.cmd === 'connect') return connectAtem(String(msg.ip || '').trim())
+	if (msg.cmd === 'inputs') {
+		const v = msg.value === 'auto' ? 'auto' : Math.max(MIN_INPUTS, Math.min(MAX_INPUTS, Number(msg.value) || MAX_INPUTS))
+		config.inputs = v
+		saveConfig(config)
+		broadcast()
+		return broadcastAdmin()
+	}
+	if (msg.cmd === 'checkUpdate' && client.role === 'admin') return checkForUpdate(true)
+	if (msg.cmd === 'installUpdate' && client.role === 'admin' && isLocal(client.ip)) return installUpdate()
 	if (msg.cmd === 'shutdown') {
 		if (client.role !== 'admin' || !isLocal(client.ip)) return
 		console.log('Stopped from the control window')
@@ -255,6 +297,62 @@ wss.on('connection', (ws, req) => {
 	})
 })
 
+// ---- Auto-update (installed Windows app) ----
+// update = { state: 'idle'|'checking'|'latest'|'available'|'downloading'|'installing'|'error', latest, message }
+let update = { state: 'idle' }
+
+function newer(a, b) {
+	const pa = String(a).split('.').map(Number)
+	const pb = String(b).split('.').map(Number)
+	for (let i = 0; i < 3; i++) {
+		if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0)
+	}
+	return false
+}
+
+function setUpdate(u) {
+	update = u
+	broadcastAdmin().catch(() => {})
+}
+
+async function checkForUpdate(manual) {
+	if (update.state === 'downloading' || update.state === 'installing') return
+	setUpdate({ state: 'checking' })
+	try {
+		const res = await fetch(UPDATE_URL + '?t=' + Date.now(), { signal: AbortSignal.timeout(15000) })
+		if (!res.ok) throw new Error('HTTP ' + res.status)
+		const info = await res.json()
+		if (newer(info.version, VERSION)) {
+			console.log(`Update available: ${info.version}`)
+			setUpdate({ state: 'available', latest: info.version, url: info.url, notes: info.notes || '' })
+		} else {
+			setUpdate({ state: 'latest', latest: info.version })
+		}
+	} catch (e) {
+		console.error('Update check failed:', e.message)
+		setUpdate({ state: manual ? 'error' : 'idle', message: 'No internet, or the update server could not be reached.' })
+	}
+}
+
+async function installUpdate() {
+	if (update.state !== 'available' || !update.url) return
+	setUpdate({ ...update, state: 'downloading' })
+	try {
+		const res = await fetch(update.url, { signal: AbortSignal.timeout(10 * 60 * 1000) })
+		if (!res.ok) throw new Error('HTTP ' + res.status)
+		const file = path.join(os.tmpdir(), `ATEM-Switcher-Setup-${update.latest}.exe`)
+		fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()))
+		setUpdate({ ...update, state: 'installing' })
+		console.log('Running installer', file)
+		// silent install; the installer closes this app, replaces it and starts the new version
+		const { spawn } = require('child_process')
+		spawn(file, ['/S'], { detached: true, stdio: 'ignore' }).unref()
+	} catch (e) {
+		console.error('Update download failed:', e.message)
+		setUpdate({ ...update, state: 'available', message: 'Download failed. Check the internet and try again.' })
+	}
+}
+
 // Opens the control window: Edge/Chrome "app" window on Windows, else the default browser
 function openControlWindow() {
 	const url = `http://localhost:${PORT}/admin`
@@ -274,6 +372,10 @@ server.listen(PORT, () => {
 	for (const a of lanAddresses()) console.log(`  http://${a.address}:${PORT}  (phones/tablets on the same Wi-Fi)`)
 	if (config.ip) connectAtem(config.ip)
 	if (IS_EXE && !process.argv.includes('--no-window')) openControlWindow()
+	if (IS_EXE) {
+		setTimeout(() => checkForUpdate(false), 5000)
+		setInterval(() => checkForUpdate(false), 6 * 60 * 60 * 1000)
+	}
 })
 
 server.on('error', (err) => {

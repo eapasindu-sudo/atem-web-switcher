@@ -85,6 +85,31 @@
     $('phoneCount').textContent = a.controllers.length
     $('phoneCount').classList.toggle('has', a.controllers.length > 0)
     $('dataDir').textContent = 'Settings and log: ' + a.dataDir
+
+    for (const b of $('inputsSeg').children) b.classList.toggle('on', String(a.inputsSetting) === b.dataset.v)
+    $('inputsSeg').children[0].textContent = a.inputsDetected ? `Auto (${a.inputsDetected})` : 'Auto'
+    $('inputsNote').textContent = a.inputsSetting === 'auto'
+      ? (a.inputsDetected ? `Auto uses the ${a.inputsDetected} HDMI inputs this ATEM has.` : 'Auto shows 8 until the ATEM is connected, then matches its inputs.')
+      : `Phones show inputs 1 to ${a.inputsSetting}.`
+
+    renderUpdate(a)
+  }
+
+  function renderUpdate(a) {
+    const u = a.update || { state: 'idle' }
+    $('updStatus').textContent = 'Version ' + a.version
+    let dot = 'off', detail = '', install = false, check = true
+    if (!a.canUpdate) { detail = 'Automatic updates work in the installed Windows app.'; check = false }
+    else if (u.state === 'checking') { dot = 'wait'; detail = 'Checking for updates…'; check = false }
+    else if (u.state === 'latest') { dot = 'on'; detail = 'You have the latest version.' }
+    else if (u.state === 'available') { dot = 'wait'; detail = `Version ${u.latest} is available.` + (u.message ? ' ' + u.message : ''); install = true }
+    else if (u.state === 'downloading') { dot = 'wait'; detail = `Downloading version ${u.latest}…`; check = false }
+    else if (u.state === 'installing') { dot = 'wait'; detail = 'Installing. Windows may ask for permission. The app restarts by itself.'; check = false }
+    else if (u.state === 'error') { dot = 'off'; detail = u.message }
+    $('updDot').className = 'dot ' + dot
+    $('updDetail').textContent = detail
+    $('updInstall').hidden = !install
+    $('updCheck').hidden = !check
   }
 
   setInterval(() => lastAdmin && renderAdmin(lastAdmin), 30000)
@@ -99,6 +124,12 @@
     delete $('ipInput').dataset.touched
     send({ cmd: 'connect', ip })
   })
+
+  for (const b of $('inputsSeg').children) {
+    b.addEventListener('click', () => send({ cmd: 'inputs', value: b.dataset.v }))
+  }
+  $('updCheck').addEventListener('click', () => send({ cmd: 'checkUpdate' }))
+  $('updInstall').addEventListener('click', () => send({ cmd: 'installUpdate' }))
 
   $('openLocal').addEventListener('click', () => window.open('/', '_blank'))
 

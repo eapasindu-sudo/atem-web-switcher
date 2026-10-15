@@ -42,6 +42,35 @@
     <div id="urls"></div>
   </section>
 
+  <section class="card">
+    <h2>Input buttons</h2>
+    <p class="muted">How many camera buttons the phones show.</p>
+    <div class="seg" id="inputsSeg" role="radiogroup" aria-label="Number of inputs">
+      <button data-v="auto">Auto</button>
+      <button data-v="4">4</button>
+      <button data-v="5">5</button>
+      <button data-v="6">6</button>
+      <button data-v="7">7</button>
+      <button data-v="8">8</button>
+    </div>
+    <p id="inputsNote" class="muted small"></p>
+  </section>
+
+  <section class="card">
+    <h2>Updates</h2>
+    <div class="status-row">
+      <span id="updDot" class="dot off"></span>
+      <div>
+        <div id="updStatus" class="big">Version –</div>
+        <div id="updDetail" class="muted"></div>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button id="updCheck">Check for updates</button>
+      <button id="updInstall" class="primary" hidden>Install update</button>
+    </div>
+  </section>
+
   <section class="card wide">
     <h2>Connected phones <span id="phoneCount" class="count">0</span></h2>
     <ul id="phones"></ul>

@@ -22,6 +22,8 @@ Opening ATEM Switcher shows the PC control window:
 - **ATEM IP address**: type a new IP and press Connect (it is remembered)
 - **Open on your phone**: a QR code. Scan it with the iPhone/Android camera and the switcher opens, already connected
 - **Connected phones**: every phone/tablet using the switcher right now
+- **Input buttons**: Auto (matches the ATEM's HDMI inputs) or a fixed 4 to 8 buttons on the phones
+- **Updates**: checks GitHub for a newer version and installs it with one click; phones reload by themselves
 - **Stop server**: stops the switcher (closing the window keeps it running in the background)
 
 On iPhone, tap Share then **Add to Home Screen** once, and it opens full screen like an app after that.

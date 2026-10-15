@@ -4,7 +4,7 @@ Unicode true
 
 !define APPNAME "ATEM Switcher"
 !define EXE "ATEM-Switcher.exe"
-!define VERSION "1.1.0"
+!define VERSION "1.2.0"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\ATEMSwitcher"
 
 Name "${APPNAME}"
@@ -52,6 +52,10 @@ Section "Install"
   WriteRegStr HKLM "${UNINST_KEY}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegDWORD HKLM "${UNINST_KEY}" "NoModify" 1
   WriteRegDWORD HKLM "${UNINST_KEY}" "NoRepair" 1
+
+  ; auto-update runs the installer silently: start the new version when done
+  IfSilent 0 +2
+  Exec '"$INSTDIR\${EXE}"'
 SectionEnd
 
 Section "Uninstall"

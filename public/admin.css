@@ -98,3 +98,9 @@ button.danger { background: #4a1716; color: #ffb3b0; }
   display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px;
 }
 #stopped[hidden] { display: none; }
+
+.small { font-size: 12px; margin: 8px 0 0; }
+.seg { display: grid; grid-template-columns: 1.6fr repeat(5, 1fr); gap: 6px; }
+.seg button { padding: 12px 0; font-size: 16px; }
+.seg button.on { background: var(--green); color: #04150a; }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
