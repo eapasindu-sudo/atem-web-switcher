@@ -11,7 +11,7 @@ A landscape web control panel for the Blackmagic **ATEM Mini Extreme** (works wi
 
 ## Windows installer (easiest)
 
-**Download:** [ATEM-Switcher-Setup.exe](https://github.com/eapasindu-sudo/atem-web-switcher/releases/latest/download/ATEM-Switcher-Setup.exe)
+**Download:** [ATEM-Switcher-Setup.exe](https://github.com/eapasindu-sudo/atem-web-switcher/raw/main/download/ATEM-Switcher-Setup.exe)
 
 Run `ATEM-Switcher-Setup.exe`. It installs **ATEM Switcher** with Start menu and desktop shortcuts,
 and allows it through Windows Firewall so phones can connect. No Node.js needed.
