@@ -37,6 +37,8 @@ const ERRORS = {
 	0x8214: 'Could not reach the camera.',
 	0x8215: 'Camera security check failed.',
 	0x8216: 'Wrong user name or password (camera menu: Access Authen. Info).',
+	0x20019: 'Camera is already connected to another app (Creators\' App, Imaging Edge or another PC). Close that app, or turn the camera off and on. Trying again…',
+	0x2001a: 'Camera has too many remote connections. Turn the camera off and on.',
 	0x8218: 'Could not reach the camera. Check the IP address, and that Access Authen. is On in the camera menu.',
 }
 
@@ -70,6 +72,7 @@ class Sony extends EventEmitter {
 		this.save = save
 		if (!Array.isArray(config.cameras)) config.cameras = []
 		this.live = {} // id -> { status, error, props }
+		this.retry = {} // id -> reconnect timer
 		this.scan = { state: 'idle', cams: [] }
 		this.bridgePath = findBridge(isExe)
 		this.proc = null
@@ -151,6 +154,15 @@ class Sony extends EventEmitter {
 			live.status = ev.state
 			live.error = ev.state === 'error' || ev.state === 'disconnected' ? errorText(ev.error) : ''
 			if (ev.state !== 'connected') live.props = {}
+			// keep trying cameras that dropped or are not on yet; the camera may also still hold our old session
+			clearTimeout(this.retry[ev.id])
+			if (ev.state === 'error' || (ev.state === 'disconnected' && ev.error)) {
+				const wait = parseInt(ev.error, 16) === 0x20019 ? 8000 : 15000
+				this.retry[ev.id] = setTimeout(() => {
+					const cam = this.config.cameras.find((c) => c.id === ev.id)
+					if (cam && this.live[ev.id] && this.live[ev.id].status !== 'connected') this.connect(cam)
+				}, wait)
+			}
 			console.log(`Sony ${ev.id}: ${ev.state}${ev.error ? ' ' + ev.error : ''}`)
 			this.emit('change')
 		} else if (ev.ev === 'props') {
@@ -173,7 +185,10 @@ class Sony extends EventEmitter {
 
 	connect(cam) {
 		if (!cam.ip || !cam.model) return
-		this.live[cam.id] = { status: 'connecting', props: {} }
+		clearTimeout(this.retry[cam.id])
+		const was = this.live[cam.id]
+		// keep the last error on screen while trying again
+		this.live[cam.id] = { status: 'connecting', props: {}, error: was && was.error }
 		this.send({ cmd: 'connect', id: cam.id, ip: cam.ip, model: cam.model, user: cam.user || 'admin', pass: cam.pass || '' })
 		this.emit('change')
 	}
@@ -209,6 +224,7 @@ class Sony extends EventEmitter {
 		this.config.cameras = this.config.cameras.filter((x) => x.id !== id)
 		this.save()
 		this.send({ cmd: 'disconnect', id })
+		clearTimeout(this.retry[id])
 		delete this.live[id]
 		this.emit('change')
 	}

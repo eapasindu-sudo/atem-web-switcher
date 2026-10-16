@@ -144,6 +144,11 @@ CrError Connect(ICrCameraObjectInfo*, IDeviceCallback* callback, CrDeviceHandle*
         cb = callback;
     }
     *h = 1;
+    static int busyTries = 0;
+    if (pass && std::string(pass) == "busy" && busyTries++ == 0) {
+        std::thread([callback] { std::this_thread::sleep_for(std::chrono::milliseconds(400)); callback->OnError(CrWarning_Connect_Already); }).detach();
+        return CrError_None;
+    }
     if (pass && std::string(pass) == "wrong") {
         std::thread([callback] { std::this_thread::sleep_for(std::chrono::milliseconds(400)); callback->OnError(CrError_Connect_SSH_UserAuthenticationFailed); }).detach();
         return CrError_None;

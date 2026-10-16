@@ -412,13 +412,14 @@ static void cmdScan()
     emit(o.str());
 }
 
-static void cmdDisconnect(const std::string& id)
+// returns true when a camera session was closed
+static bool cmdDisconnect(const std::string& id)
 {
     std::shared_ptr<Camera> cam;
     {
         std::lock_guard<std::mutex> lock(g_camMx);
         auto it = g_cams.find(id);
-        if (it == g_cams.end()) return;
+        if (it == g_cams.end()) return false;
         cam = it->second;
         g_cams.erase(it);
     }
@@ -430,6 +431,7 @@ static void cmdDisconnect(const std::string& id)
     cam->status("disconnected");
     // keep the callback object alive a little in case the SDK still calls it
     std::thread([cam] { std::this_thread::sleep_for(std::chrono::seconds(5)); }).detach();
+    return cam->handle != 0;
 }
 
 static void cmdConnect(const Obj& o)
@@ -437,7 +439,8 @@ static void cmdConnect(const Obj& o)
     std::string id = get(o, "id"), ipText = get(o, "ip"), modelText = get(o, "model");
     std::string user = get(o, "user"), pass = get(o, "pass");
     if (user.empty()) user = "admin";
-    cmdDisconnect(id);
+    // give the camera a moment to drop the old session, or it answers "already connected"
+    if (cmdDisconnect(id)) std::this_thread::sleep_for(std::chrono::seconds(2));
 
     auto cam = std::make_shared<Camera>();
     cam->id = id;

@@ -1,5 +1,5 @@
 {
-  "version": "1.3.0",
+  "version": "1.3.1",
   "url": "https://github.com/eapasindu-sudo/atem-web-switcher/raw/main/download/ATEM-Switcher-Setup.exe",
-  "notes": "Sony camera control (CCU) for FX and A7 cameras over Wi-Fi"
+  "notes": "Sony cameras: retry when the camera says it is already connected"
 }

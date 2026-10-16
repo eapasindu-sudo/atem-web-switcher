@@ -4,7 +4,7 @@ Unicode true
 
 !define APPNAME "ATEM Switcher"
 !define EXE "ATEM-Switcher.exe"
-!define VERSION "1.3.0"
+!define VERSION "1.3.1"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\ATEMSwitcher"
 
 Name "${APPNAME}"
