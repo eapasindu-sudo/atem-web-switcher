@@ -22,6 +22,10 @@
     <button type="submit">Connect</button>
   </form>
   <div id="status" class="status off">Not connected</div>
+  <div id="viewSeg" class="view-seg" hidden>
+    <button data-view="switcher" class="on">SWITCHER</button>
+    <button data-view="ccu">CCU</button>
+  </div>
   <button id="lock" class="lock" title="Lock buttons" aria-pressed="false">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path class="shackle" d="M7 11V8a5 5 0 0 1 10 0v3"/><rect x="5" y="11" width="14" height="10" rx="2"/></svg>
     <span id="lockText">Lock</span>
@@ -34,7 +38,7 @@
   <button id="hintClose" aria-label="Close">✕</button>
 </div>
 
-<main>
+<main id="switcher">
   <section class="buses">
     <div class="bus">
       <div class="bus-label program-label">PROGRAM</div>
@@ -61,6 +65,38 @@
   </section>
 </main>
 
+<main id="ccu" class="ccu" hidden>
+  <div class="ccu-top">
+    <div id="ccuTabs" class="ccu-tabs"></div>
+    <button id="ccuFollow" class="ccu-follow" title="Show the camera that is on preview">Follow preview</button>
+  </div>
+  <div class="ccu-body">
+    <div id="ccuGrid" class="ccu-grid"></div>
+    <div id="ccuEmpty" class="ccu-empty" hidden></div>
+    <div id="ccuSide" class="ccu-side">
+      <button id="ccuRec" class="ccu-rec"><span class="rec-dot"></span><span id="ccuRecText">REC</span></button>
+      <div class="ccu-focus">
+        <div class="ccu-label"><span>FOCUS</span><em id="ccuFocusMode" class="tap">--</em></div>
+        <div class="focus-row">
+          <button class="focus-btn" data-dir="-2">«</button>
+          <button class="focus-btn" data-dir="-1">‹</button>
+          <button class="focus-btn" data-dir="1">›</button>
+          <button class="focus-btn" data-dir="2">»</button>
+        </div>
+        <div class="focus-hint"><span>NEAR</span><span>FAR</span></div>
+      </div>
+      <div id="ccuBattery" class="ccu-battery"></div>
+    </div>
+  </div>
+</main>
+
+<div id="picker" class="picker" hidden>
+  <div class="picker-box">
+    <div class="picker-head"><b id="pickerTitle"></b><button id="pickerClose" aria-label="Close">✕</button></div>
+    <div id="pickerGrid" class="picker-grid"></div>
+  </div>
+</div>
+
 <div id="lockedHint" hidden>Locked. Hold the <b>lock button</b> for 1 second to unlock.</div>
 
 <div id="rotate">
@@ -68,6 +104,7 @@
   <p>Please turn your device to landscape</p>
 </div>
 
+<script src="ccu.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

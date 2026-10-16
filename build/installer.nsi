@@ -4,7 +4,7 @@ Unicode true
 
 !define APPNAME "ATEM Switcher"
 !define EXE "ATEM-Switcher.exe"
-!define VERSION "1.2.1"
+!define VERSION "1.3.0"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\ATEMSwitcher"
 
 Name "${APPNAME}"
@@ -32,8 +32,25 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 Section "Install"
   ; stop a running copy so the file can be replaced
   nsExec::Exec 'taskkill /F /IM ${EXE}'
+  nsExec::Exec 'taskkill /F /IM sony-bridge.exe'
   SetOutPath "$INSTDIR"
   File "${EXE}"
+!if /FileExists "sony\sony-bridge.exe"
+  ; Sony camera control (CCU): bridge + Sony Camera Remote SDK files
+  SetOutPath "$INSTDIR\sony"
+  File /r "sony\*"
+  SetOutPath "$INSTDIR"
+  ; the Sony SDK needs the Microsoft Visual C++ runtime; fetch it once if this PC doesn't have it
+  ReadRegDWORD $0 HKLM "SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\X64" "Installed"
+  StrCmp $0 "1" vcDone
+  DetailPrint "Downloading Microsoft Visual C++ runtime for Sony camera control..."
+  nsExec::Exec 'curl.exe -sSfL -o "$TEMP\vc_redist.x64.exe" https://aka.ms/vs/17/release/vc_redist.x64.exe'
+  Pop $1
+  StrCmp $1 "0" 0 vcDone
+  ExecWait '"$TEMP\vc_redist.x64.exe" /install /quiet /norestart'
+  Delete "$TEMP\vc_redist.x64.exe"
+  vcDone:
+!endif
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
   CreateDirectory "$SMPROGRAMS\${APPNAME}"
@@ -44,6 +61,9 @@ Section "Install"
   ; let phones on the network reach the switcher page (port 3000)
   nsExec::Exec 'netsh advfirewall firewall delete rule name="${APPNAME}"'
   nsExec::Exec 'netsh advfirewall firewall add rule name="${APPNAME}" dir=in action=allow program="$INSTDIR\${EXE}" enable=yes profile=any'
+  ; Sony cameras answer the camera search over the network
+  nsExec::Exec 'netsh advfirewall firewall delete rule name="${APPNAME} Sony"'
+  nsExec::Exec 'netsh advfirewall firewall add rule name="${APPNAME} Sony" dir=in action=allow program="$INSTDIR\sony\sony-bridge.exe" enable=yes profile=any'
 
   WriteRegStr HKLM "${UNINST_KEY}" "DisplayName" "${APPNAME}"
   WriteRegStr HKLM "${UNINST_KEY}" "DisplayVersion" "${VERSION}"
@@ -60,7 +80,10 @@ SectionEnd
 
 Section "Uninstall"
   nsExec::Exec 'taskkill /F /IM ${EXE}'
+  nsExec::Exec 'taskkill /F /IM sony-bridge.exe'
   nsExec::Exec 'netsh advfirewall firewall delete rule name="${APPNAME}"'
+  nsExec::Exec 'netsh advfirewall firewall delete rule name="${APPNAME} Sony"'
+  RMDir /r "$INSTDIR\sony"
   Delete "$INSTDIR\${EXE}"
   Delete "$INSTDIR\Uninstall.exe"
   RMDir "$INSTDIR"

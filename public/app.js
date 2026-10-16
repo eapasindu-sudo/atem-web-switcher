@@ -18,9 +18,10 @@
   let dragging = false
   let pendingPos = null
 
-  const SWITCHING = ['program', 'preview', 'cut', 'auto', 'tbar']
+  // everything a stray tap could change; blocked while locked
+  const BLOCKED = ['program', 'preview', 'cut', 'auto', 'tbar', 'camSet', 'camRec', 'camFocus']
   function send(obj) {
-    if (locked && SWITCHING.includes(obj.cmd)) return
+    if (locked && BLOCKED.includes(obj.cmd) && !(obj.cmd === 'camFocus' && obj.speed === 0)) return
     if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj))
   }
 
@@ -71,6 +72,7 @@
     sock.onmessage = (e) => {
       const msg = JSON.parse(e.data)
       if (msg.type === 'state') render(msg)
+      if (msg.type === 'cams') onCams(msg)
     }
     sock.onclose = () => {
       if (ws !== sock) return
@@ -109,6 +111,30 @@
     }
   }
 
+  // ---- SWITCHER / CCU view ----
+  let view = 'switcher'
+  try { view = localStorage.getItem('view') || 'switcher' } catch {}
+  function showView(v) {
+    if (v === 'ccu' && !(CCU.available || CCU.count)) v = 'switcher'
+    $('switcher').hidden = v !== 'switcher'
+    $('ccu').hidden = v !== 'ccu'
+    for (const b of $('viewSeg').children) b.classList.toggle('on', b.dataset.view === v)
+    document.body.classList.toggle('ccu-view', v === 'ccu')
+  }
+  for (const b of $('viewSeg').children) {
+    b.addEventListener('click', () => {
+      view = b.dataset.view
+      try { localStorage.setItem('view', view) } catch {}
+      showView(view)
+    })
+  }
+  function onCams(msg) {
+    $('viewSeg').hidden = !(msg.available || (msg.cams && msg.cams.length))
+    CCU.onCams(msg)
+    showView(view)
+  }
+  CCU.init(send)
+
   let pageVersion = null
   function render(msg) {
     // the PC app was updated: reload so the phone gets the new page too
@@ -127,6 +153,7 @@
     else setStatus('wait', 'Connecting to ' + msg.ip + '…')
     document.body.classList.toggle('disabled', !msg.connected)
 
+    CCU.onAtem(msg)
     buildRows(msg.sources)
     for (const b of programRow.children) b.classList.toggle('active', Number(b.dataset.id) === msg.program)
     for (const b of previewRow.children) {
@@ -220,7 +247,7 @@
 
   // Keyboard: 1-8 = preview, Shift+1-8 = program, Space = CUT, Enter = AUTO
   document.addEventListener('keydown', (e) => {
-    if (e.target === ipInput || locked) return
+    if (e.target === ipInput || locked || view === 'ccu') return
     const m = e.code.match(/^(?:Digit|Numpad)([1-8])$/)
     if (m) {
       send({ cmd: e.shiftKey ? 'program' : 'preview', input: Number(m[1]) })

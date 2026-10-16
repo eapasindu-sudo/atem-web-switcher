@@ -25,6 +25,23 @@ Opening ATEM Switcher shows the PC control window:
 - **Input buttons**: Auto (matches the ATEM's HDMI inputs) or a fixed 4 to 8 buttons on the phones
 - **Updates**: checks GitHub for a newer version and installs it with one click; phones reload by themselves
 - **Stop server**: stops the switcher (closing the window keeps it running in the background)
+- **Sony cameras**: add FX3/FX30/FX6 or A7 IV/A7S III (and other Sony bodies with PC Remote) over Wi-Fi
+
+### Sony camera control (CCU)
+
+Phones get a **CCU** tab next to **SWITCHER**. Pick a camera and change **iris, shutter (or angle), ISO/EI,
+white balance and Kelvin, ND (FX6), focus** and start/stop **REC**. Tap a value to see every option,
+or use − and +. If a camera is linked to an ATEM input, its tab shows red/green tally and
+**Follow preview** jumps to the camera on preview.
+
+Camera setup (menu names from FX3/A7 IV):
+1. Network, Wi-Fi: join the same Wi-Fi as the PC.
+2. Network, Cnct./PC Remote, PC Remote Function: PC Remote **On**.
+3. Access Authen. Settings **On**; the user name and password are in Access Authen. Info.
+4. On the PC window, Sony cameras, **Add camera** (or **Find cameras on the network**), enter the IP and password.
+
+Sony control uses the Sony Camera Remote SDK (runtime files in `sony\`). The SDK itself is not in this repository;
+to rebuild that part: `SONY_SDK=/path/to/RemoteCli build/sony-bridge/build-mingw.sh` before `build/build-windows.sh`.
 
 On iPhone, tap Share then **Add to Home Screen** once, and it opens full screen like an app after that.
 Settings and a log file are kept in `%APPDATA%\ATEM Switcher`.

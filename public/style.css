@@ -178,7 +178,7 @@ main {
   background: var(--red); transform: translateY(-50%); border-radius: 2px;
 }
 
-.disabled main { opacity: .45; pointer-events: none; }
+.disabled #switcher { opacity: .45; pointer-events: none; }
 
 #rotate {
   display: none;
@@ -244,3 +244,85 @@ body.locked main { pointer-events: none; opacity: .55; filter: saturate(.7); }
 }
 #lockedHint[hidden] { display: none; }
 @media (max-height: 420px) { .lock span { display: none; } }
+
+/* ---- SWITCHER / CCU toggle ---- */
+main[hidden], [hidden].ccu-side, [hidden].ccu-empty, [hidden].view-seg, [hidden].ccu-follow, [hidden].picker { display: none !important; }
+.view-seg { display: flex; background: #000; border-radius: 7px; padding: 2px; gap: 2px; }
+.view-seg button { background: none; color: #aaa; border: 0; border-radius: 5px; padding: 6px 10px; font-size: 13px; font-weight: 800; letter-spacing: 1px; cursor: pointer; }
+.view-seg button.on { background: #3a3a3c; color: #fff; }
+
+/* ---- CCU ---- */
+.ccu { flex-direction: column; gap: 10px; }
+.ccu-top { display: flex; gap: 8px; align-items: stretch; }
+.ccu-tabs { flex: 1; display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+.cam-tab {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  background: var(--btn); color: #ddd; border: 2px solid transparent; border-radius: 10px;
+  padding: 8px 14px; font-size: 16px; cursor: pointer;
+}
+.cam-tab b { font-weight: 800; }
+.cam-tab small { font-size: 11px; opacity: .6; }
+.cam-tab.sel { background: #48484a; color: #fff; border-color: #fff; }
+.cam-tab.pgm { box-shadow: inset 0 -4px 0 var(--red); }
+.cam-tab.pvw { box-shadow: inset 0 -4px 0 var(--green); }
+.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; display: inline-block; }
+.dot.on { background: var(--green); }
+.dot.wait { background: var(--amber); animation: pulse 1s infinite; }
+.dot.off { background: #666; }
+@keyframes pulse { 50% { opacity: .35; } }
+.ccu-follow { flex: none; background: var(--btn); color: #aaa; border: 0; border-radius: 10px; padding: 0 12px; font-size: 12px; font-weight: 700; cursor: pointer; }
+.ccu-follow.on { background: #10331a; color: #6fe38a; }
+
+.ccu-body { flex: 1; display: flex; gap: 10px; min-height: 0; }
+.ccu-grid { flex: 1; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); grid-auto-rows: 1fr; gap: 10px; min-height: 0; }
+.ccu-card { background: var(--panel); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.ccu-card.ro { opacity: .5; }
+.ccu-card.ro button { pointer-events: none; }
+.ccu-label { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 800; letter-spacing: 1.5px; color: #999; }
+.ccu-label em { font-style: normal; font-size: 11px; letter-spacing: .5px; padding: 2px 6px; border-radius: 5px; background: #333; color: #ddd; }
+.ccu-label em.auto { background: #3a2c10; color: var(--amber); }
+.ccu-label em.tap { cursor: pointer; }
+.ccu-label em:empty { display: none; }
+.ccu-value {
+  flex: 1; min-height: 0; background: #000; color: #fff; border: 0; border-radius: 8px; cursor: pointer;
+  font-size: clamp(22px, 4.2vw, 44px); font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden;
+}
+.ccu-steps { display: flex; gap: 6px; }
+.ccu-steps button {
+  flex: 1; height: clamp(38px, 9vh, 64px); background: var(--btn); color: #fff; border: 0; border-radius: 8px;
+  font-size: 28px; font-weight: 700; cursor: pointer; box-shadow: inset 0 -3px 0 rgba(0,0,0,.35);
+}
+.ccu-steps button:active, .focus-btn:active { background: #fff; color: #000; }
+
+.ccu-side { width: clamp(150px, 22vw, 230px); display: flex; flex-direction: column; gap: 10px; }
+.ccu-rec {
+  flex: 1; max-height: 140px; display: flex; align-items: center; justify-content: center; gap: 10px;
+  background: var(--btn); color: #fff; border: 0; border-radius: 12px; font-size: 24px; font-weight: 800; letter-spacing: 2px; cursor: pointer;
+}
+.rec-dot { width: 22px; height: 22px; border-radius: 50%; background: var(--red); }
+.ccu-rec.on { background: var(--red); box-shadow: 0 0 18px var(--red-glow); animation: pulse 1.4s infinite; }
+.ccu-rec.on .rec-dot { background: #fff; border-radius: 4px; }
+.ccu-focus { background: var(--panel); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.focus-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.focus-btn { height: clamp(40px, 10vh, 64px); background: var(--btn); color: #fff; border: 0; border-radius: 8px; font-size: 24px; cursor: pointer; touch-action: none; }
+.focus-hint { display: flex; justify-content: space-between; font-size: 10px; color: #777; letter-spacing: 1px; }
+.ccu-battery { text-align: center; color: #aaa; font-size: 14px; }
+.ccu-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #bbb; font-size: 16px; gap: 8px; padding: 20px; }
+.ccu-empty .err { color: #ff8a8a; font-size: 14px; }
+.ccu-empty button { background: #3a3a3c; color: #fff; border: 0; border-radius: 8px; padding: 10px 18px; font-size: 15px; cursor: pointer; }
+
+.picker { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.picker-box { background: var(--panel); border-radius: 14px; width: min(720px, 100%); max-height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.picker-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid #000; letter-spacing: 1.5px; }
+.picker-head button { background: none; border: 0; color: #fff; font-size: 20px; cursor: pointer; }
+.picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 8px; padding: 12px; overflow-y: auto; }
+.picker-grid button { background: var(--btn); color: #fff; border: 0; border-radius: 8px; padding: 12px 4px; font-size: 17px; font-weight: 700; cursor: pointer; font-variant-numeric: tabular-nums; }
+.picker-grid button.cur { background: #fff; color: #000; }
+
+@media (max-height: 420px) {
+  .ccu { gap: 6px; }
+  .cam-tab { padding: 5px 10px; font-size: 14px; }
+  .ccu-grid, .ccu-body { gap: 6px; }
+  .ccu-card { padding: 6px; gap: 4px; }
+}
+.lock, #fullscreen, .view-seg { flex-shrink: 0; }

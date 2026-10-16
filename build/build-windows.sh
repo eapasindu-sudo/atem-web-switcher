@@ -4,7 +4,7 @@
 set -euo pipefail
 NODE_VER=v22.22.0
 mkdir -p dist && cd dist
-for f in app admin; do cp ../public/$f.js ../public/$f.js.txt; done
+for f in app admin ccu; do cp ../public/$f.js ../public/$f.js.txt; done
 cp ../public/manifest.json ../public/manifest.json.txt
 npx --yes esbuild@0.24 ../build/exe-entry.js --bundle --platform=node --target=node22 \
   --loader:.html=text --loader:.css=text --loader:.txt=text --loader:.png=binary \
@@ -17,5 +17,6 @@ node --experimental-sea-config sea-config.json
 cp node.exe ATEM-Switcher.exe
 npx --yes postject@1.0.0-alpha.6 ATEM-Switcher.exe NODE_SEA_BLOB sea-prep.blob --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
 python3 ../build/set-gui-subsystem.py ATEM-Switcher.exe
+[ -f sony/sony-bridge.exe ] && echo "Including Sony camera control (dist/sony)" || echo "No dist/sony: building without Sony camera control (see build/sony-bridge/build-mingw.sh)"
 cp ../build/installer.nsi . && makensis -V2 installer.nsi
 echo "Built dist/ATEM-Switcher-Setup.exe"

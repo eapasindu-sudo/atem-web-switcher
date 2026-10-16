@@ -71,6 +71,46 @@
     </div>
   </section>
 
+  <section class="card wide" id="sonyCard">
+    <h2>Sony cameras <span id="camCount" class="count">0</span></h2>
+    <div id="sonyMissing" class="muted" hidden>Sony camera control is not included in this version.</div>
+    <div id="sonyProblem" class="error" hidden></div>
+    <div id="sonyBody">
+      <ul id="camList"></ul>
+      <div class="btn-row">
+        <button id="camAdd" class="primary">Add camera</button>
+        <button id="camScan">Find cameras on the network</button>
+      </div>
+      <div id="scanResults"></div>
+      <form id="camForm" hidden>
+        <input type="hidden" id="camId">
+        <div class="form-grid">
+          <label>Name<input id="camName" maxlength="12" placeholder="CAM 1"></label>
+          <label>Model<select id="camModel"></select></label>
+          <label>Camera IP address<input id="camIp" inputmode="decimal" placeholder="192.168.1.50" spellcheck="false"></label>
+          <label>ATEM input<select id="camInput"></select></label>
+          <label>User name<input id="camUser" placeholder="admin" spellcheck="false" autocomplete="off"></label>
+          <label>Password<input id="camPass" type="password" autocomplete="new-password" placeholder="from the camera menu"></label>
+        </div>
+        <div id="camFormError" class="error" hidden></div>
+        <div class="btn-row">
+          <button type="submit" class="primary">Save and connect</button>
+          <button type="button" id="camCancel">Cancel</button>
+        </div>
+      </form>
+      <details class="small muted">
+        <summary>How to set up the camera</summary>
+        <ol>
+          <li>Connect the camera to the same Wi-Fi as this PC (camera menu: Network, Wi-Fi, Access Point Set.).</li>
+          <li>Turn on PC Remote (Network, Cnct./PC Remote, PC Remote Function, PC Remote: On).</li>
+          <li>Set Access Authen. Settings to On. The user name and password are in Access Authen. Info.</li>
+          <li>The camera's IP address is shown in Network, Wi-Fi, Wi-Fi Info (or use Find cameras).</li>
+          <li>ATEM input: the ATEM button this camera is plugged into, so phones show its tally and follow preview.</li>
+        </ol>
+      </details>
+    </div>
+  </section>
+
   <section class="card wide">
     <h2>Connected phones <span id="phoneCount" class="count">0</span></h2>
     <ul id="phones"></ul>

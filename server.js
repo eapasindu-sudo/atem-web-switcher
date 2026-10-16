@@ -12,6 +12,7 @@ const QRCode = require('qrcode')
 const { WebSocketServer } = require('ws')
 const { Atem } = require('atem-connection')
 const { version: VERSION } = require('./package.json')
+const { Sony, MODELS: SONY_MODELS } = require('./sony')
 
 // Where the app looks for a newer version (installed .exe only)
 const UPDATE_URL = 'https://raw.githubusercontent.com/eapasindu-sudo/atem-web-switcher/main/version.json'
@@ -84,6 +85,12 @@ function lanAddresses() {
 const config = loadConfig()
 // 'auto' = number of HDMI inputs the ATEM reports, else a fixed 4..8 chosen on the PC
 if (!config.inputs) config.inputs = 'auto'
+const sony = new Sony(config, () => saveConfig(config), IS_EXE)
+sony.on('change', () => {
+	broadcastCams()
+	broadcastAdmin().catch(() => {})
+})
+sony.on('admin', () => broadcastAdmin().catch(() => {}))
 let atem = null
 let atemIp = null
 let connected = false
@@ -179,6 +186,7 @@ async function adminInfo() {
 		inputsDetected: detectedInputs(),
 		update,
 		canUpdate: IS_EXE && process.platform === 'win32',
+		sony: { available: sony.available, problem: sony.problem || null, cams: sony.adminCams(), scan: sony.scan, models: SONY_MODELS },
 	}
 }
 
@@ -186,6 +194,17 @@ function broadcast() {
 	const msg = JSON.stringify(snapshot())
 	for (const client of wss.clients) {
 		if (client.readyState === 1) client.send(msg)
+	}
+}
+
+function camsMessage() {
+	return JSON.stringify({ type: 'cams', available: sony.available, cams: sony.cams() })
+}
+
+function broadcastCams() {
+	const msg = camsMessage()
+	for (const [ws, c] of clients) {
+		if (c.role === 'controller' && ws.readyState === 1) ws.send(msg)
 	}
 }
 
@@ -238,6 +257,7 @@ async function handleCommand(ws, msg) {
 	if (msg.cmd === 'hello') {
 		client.role = msg.role === 'admin' ? 'admin' : 'controller'
 		if (client.role === 'admin') ws.send(JSON.stringify(await adminInfo()))
+		else ws.send(camsMessage())
 		return broadcastAdmin()
 	}
 	if (msg.cmd === 'connect') return connectAtem(String(msg.ip || '').trim())
@@ -248,13 +268,20 @@ async function handleCommand(ws, msg) {
 		broadcast()
 		return broadcastAdmin()
 	}
+	if (/^cam(Set|Rec|Focus|Reconnect)$/.test(msg.cmd)) return sony.command(msg)
+	if (client.role === 'admin' && isLocal(client.ip)) {
+		if (msg.cmd === 'camScan') return sony.startScan()
+		if (msg.cmd === 'camSave') return sony.saveCamera(msg.cam || {})
+		if (msg.cmd === 'camRemove') return sony.removeCamera(String(msg.id))
+	}
 	if (msg.cmd === 'checkUpdate' && client.role === 'admin') return checkForUpdate(true)
 	if (msg.cmd === 'installUpdate' && client.role === 'admin' && isLocal(client.ip)) return installUpdate()
 	if (msg.cmd === 'shutdown') {
 		if (client.role !== 'admin' || !isLocal(client.ip)) return
 		console.log('Stopped from the control window')
 		for (const c of wss.clients) c.close()
-		setTimeout(() => process.exit(0), 300)
+		sony.stop()
+		setTimeout(() => process.exit(0), 500)
 		return
 	}
 	if (!atem || !connected) return

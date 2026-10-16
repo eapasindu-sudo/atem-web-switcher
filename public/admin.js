@@ -93,7 +93,105 @@
       : `Phones show inputs 1 to ${a.inputsSetting}.`
 
     renderUpdate(a)
+    renderSony(a.sony)
   }
+
+  // ---- Sony cameras ----
+  let sony = null
+  function renderSony(info) {
+    sony = info
+    if (!info) return
+    $('sonyMissing').hidden = info.available
+    $('sonyBody').hidden = !info.available
+    const prob = $('sonyProblem')
+    prob.hidden = !info.problem
+    if (info.problem === 'vcruntime') prob.innerHTML = 'Sony camera control needs the Microsoft Visual C++ runtime. <a href="https://aka.ms/vs/17/release/vc_redist.x64.exe" target="_blank">Download it here</a>, install it, then restart ATEM Switcher.'
+    else if (info.problem === 'sdk') prob.textContent = 'The Sony camera software did not start. Restart ATEM Switcher; if it keeps happening, reinstall it.'
+    $('camCount').textContent = info.cams.length
+    $('camCount').classList.toggle('has', info.cams.some((c) => c.status === 'connected'))
+    if (!$('camModel').options.length) {
+      for (const [v, label] of info.models) $('camModel').add(new Option(label + ' (' + v + ')', v))
+      $('camInput').add(new Option('None', '0'))
+      for (let i = 1; i <= 8; i++) $('camInput').add(new Option('Input ' + i, String(i)))
+    }
+    const list = $('camList')
+    list.innerHTML = ''
+    const modelName = (m) => (info.models.find((x) => x[0] === m) || [m, m])[1]
+    for (const c of info.cams) {
+      const li = document.createElement('li')
+      const dot = c.status === 'connected' ? 'on' : /connecting/.test(c.status) ? 'wait' : 'off'
+      li.innerHTML = `<span class="dot ${dot}"></span><b></b><span class="muted"></span><span class="grow"></span><button data-a="edit">Edit</button><button data-a="del" class="danger">Remove</button>`
+      li.querySelector('b').textContent = c.name
+      const status = { connected: 'connected', connecting: 'connecting…', reconnecting: 'reconnecting…' }[c.status] || 'not connected'
+      li.querySelector('.muted').textContent = `${modelName(c.model)} · ${c.ip}${c.input ? ' · ATEM input ' + c.input : ''} · ${status}`
+      if (c.error && c.status !== 'connected') {
+        const e = document.createElement('span')
+        e.className = 'err'
+        e.textContent = c.error
+        li.appendChild(e)
+      }
+      li.querySelector('[data-a=edit]').addEventListener('click', () => openCamForm(c))
+      const del = li.querySelector('[data-a=del]')
+      del.addEventListener('click', () => {
+        if (del.dataset.sure) return send({ cmd: 'camRemove', id: c.id })
+        del.dataset.sure = '1'
+        del.textContent = 'Click again'
+        setTimeout(() => { delete del.dataset.sure; del.textContent = 'Remove' }, 3000)
+      })
+      list.appendChild(li)
+    }
+    const scan = info.scan || { state: 'idle', cams: [] }
+    $('camScan').disabled = scan.state === 'scanning'
+    $('camScan').textContent = scan.state === 'scanning' ? 'Looking for cameras…' : 'Find cameras on the network'
+    const res = $('scanResults')
+    res.innerHTML = ''
+    if (scan.state === 'done') {
+      const found = scan.cams.filter((f) => !info.cams.some((c) => c.ip === f.ip))
+      if (!found.length) res.innerHTML = `<p class="muted small">${scan.cams.length ? 'All cameras found are already added.' : 'No camera found. Check that PC Remote is on and the camera is on the same Wi-Fi.'}</p>`
+      for (const f of found) {
+        const row = document.createElement('div')
+        row.innerHTML = '<span></span><button>Add</button>'
+        row.firstChild.textContent = `${modelName(f.model)} at ${f.ip}`
+        row.lastChild.addEventListener('click', () => openCamForm({ model: f.model, ip: f.ip, name: '' }))
+        res.appendChild(row)
+      }
+    }
+  }
+
+  function openCamForm(c) {
+    $('camForm').hidden = false
+    $('camFormError').hidden = true
+    $('camId').value = c.id || ''
+    $('camName').value = c.name || ''
+    $('camModel').value = c.model || 'ILME-FX3'
+    $('camIp').value = c.ip || ''
+    $('camInput').value = String(c.input || 0)
+    $('camUser').value = c.user || 'admin'
+    $('camPass').value = ''
+    $('camPass').placeholder = c.hasPass ? 'saved (type to change)' : 'from the camera menu'
+    $('camName').focus()
+  }
+
+  $('camAdd').addEventListener('click', () => {
+    const used = new Set(((sony && sony.cams) || []).map((c) => c.input))
+    let input = 0
+    for (let i = 1; i <= 8; i++) if (!used.has(i)) { input = i; break }
+    openCamForm({ name: 'CAM ' + (((sony && sony.cams.length) || 0) + 1), input })
+  })
+  $('camCancel').addEventListener('click', () => { $('camForm').hidden = true })
+  $('camScan').addEventListener('click', () => send({ cmd: 'camScan' }))
+  $('camForm').addEventListener('submit', (e) => {
+    e.preventDefault()
+    const ip = $('camIp').value.trim()
+    const ok = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(ip) && ip.split('.').every((n) => Number(n) <= 255)
+    if (!ok) {
+      $('camFormError').textContent = "The camera IP doesn't look right. Use 4 numbers like 192.168.1.50."
+      $('camFormError').hidden = false
+      return
+    }
+    send({ cmd: 'camSave', cam: { id: $('camId').value || undefined, name: $('camName').value, model: $('camModel').value, ip, input: $('camInput').value, user: $('camUser').value, pass: $('camPass').value } })
+    $('camForm').hidden = true
+  })
 
   function renderUpdate(a) {
     const u = a.update || { state: 'idle' }
