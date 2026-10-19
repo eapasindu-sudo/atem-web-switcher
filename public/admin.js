@@ -197,7 +197,8 @@
     const u = a.update || { state: 'idle' }
     $('updStatus').textContent = 'Version ' + a.version
     let dot = 'off', detail = '', install = false, check = true
-    if (!a.canUpdate) { detail = 'Automatic updates work in the installed Windows app.'; check = false }
+    if (a.embedded) { detail = 'Part of Endora Playout: it comes with Playout updates.'; check = false }
+    else if (!a.canUpdate) { detail = 'Automatic updates work in the installed Windows app.'; check = false }
     else if (u.state === 'checking') { dot = 'wait'; detail = 'Checking for updates…'; check = false }
     else if (u.state === 'latest') { dot = 'on'; detail = 'You have the latest version.' }
     else if (u.state === 'available') { dot = 'wait'; detail = `Version ${u.latest} is available.` + (u.message ? ' ' + u.message : ''); install = true }

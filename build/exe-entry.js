@@ -3,6 +3,7 @@ global.EMBEDDED_PUBLIC = {
   '/style.css': require('../public/style.css'),
   '/app.js': require('../public/app.js.txt'),
   '/ccu.js': require('../public/ccu.js.txt'),
+  '/more.js': require('../public/more.js.txt'),
   '/admin.html': require('../public/admin.html'),
   '/admin.css': require('../public/admin.css'),
   '/admin.js': require('../public/admin.js.txt'),

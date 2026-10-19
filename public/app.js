@@ -19,7 +19,8 @@
   let pendingPos = null
 
   // everything a stray tap could change; blocked while locked
-  const BLOCKED = ['program', 'preview', 'cut', 'auto', 'tbar', 'camSet', 'camRec', 'camFocus']
+  const BLOCKED = ['program', 'preview', 'cut', 'auto', 'tbar', 'camSet', 'camRec', 'camFocus',
+    'style', 'rate', 'ftb', 'usk', 'pip', 'dsk', 'dskAuto', 'dskTie', 'audio', 'audioMaster', 'macro']
   function send(obj) {
     if (locked && BLOCKED.includes(obj.cmd) && !(obj.cmd === 'camFocus' && obj.speed === 0)) return
     if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj))
@@ -73,6 +74,7 @@
       const msg = JSON.parse(e.data)
       if (msg.type === 'state') render(msg)
       if (msg.type === 'cams') onCams(msg)
+      if (msg.type === 'error') MORE.onError(msg)
     }
     sock.onclose = () => {
       if (ws !== sock) return
@@ -118,6 +120,7 @@
     if (v === 'ccu' && !(CCU.available || CCU.count)) v = 'switcher'
     $('switcher').hidden = v !== 'switcher'
     $('ccu').hidden = v !== 'ccu'
+    $('more').hidden = v !== 'more'
     for (const b of $('viewSeg').children) b.classList.toggle('on', b.dataset.view === v)
     document.body.classList.toggle('ccu-view', v === 'ccu')
   }
@@ -129,11 +132,13 @@
     })
   }
   function onCams(msg) {
-    $('viewSeg').hidden = !(msg.available || (msg.cams && msg.cams.length))
+    $('viewCcu').hidden = !(msg.available || (msg.cams && msg.cams.length))
     CCU.onCams(msg)
     showView(view)
   }
   CCU.init(send)
+  MORE.init(send)
+  $('viewSeg').hidden = false
 
   let pageVersion = null
   function render(msg) {
@@ -154,6 +159,7 @@
     document.body.classList.toggle('disabled', !msg.connected)
 
     CCU.onAtem(msg)
+    MORE.onState(msg)
     buildRows(msg.sources)
     for (const b of programRow.children) b.classList.toggle('active', Number(b.dataset.id) === msg.program)
     for (const b of previewRow.children) {
@@ -247,7 +253,7 @@
 
   // Keyboard: 1-8 = preview, Shift+1-8 = program, Space = CUT, Enter = AUTO
   document.addEventListener('keydown', (e) => {
-    if (e.target === ipInput || locked || view === 'ccu') return
+    if (e.target === ipInput || locked || view !== 'switcher') return
     const m = e.code.match(/^(?:Digit|Numpad)([1-8])$/)
     if (m) {
       send({ cmd: e.shiftKey ? 'program' : 'preview', input: Number(m[1]) })
