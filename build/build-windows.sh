@@ -4,7 +4,7 @@
 set -euo pipefail
 NODE_VER=v22.22.0
 mkdir -p dist && cd dist
-for f in app admin ccu; do cp ../public/$f.js ../public/$f.js.txt; done
+for f in app admin ccu more; do cp ../public/$f.js ../public/$f.js.txt; done
 cp ../public/manifest.json ../public/manifest.json.txt
 npx --yes esbuild@0.24 ../build/exe-entry.js --bundle --platform=node --target=node22 \
   --loader:.html=text --loader:.css=text --loader:.txt=text --loader:.png=binary \

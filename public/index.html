@@ -24,7 +24,8 @@
   <div id="status" class="status off">Not connected</div>
   <div id="viewSeg" class="view-seg" hidden>
     <button data-view="switcher" class="on">SWITCHER</button>
-    <button data-view="ccu">CCU</button>
+    <button data-view="ccu" id="viewCcu">CCU</button>
+    <button data-view="more">MORE</button>
   </div>
   <button id="lock" class="lock" title="Lock buttons" aria-pressed="false">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path class="shackle" d="M7 11V8a5 5 0 0 1 10 0v3"/><rect x="5" y="11" width="14" height="10" rx="2"/></svg>
@@ -90,6 +91,12 @@
   </div>
 </main>
 
+<main id="more" class="more" hidden>
+  <div id="moreErr" class="more-err" hidden></div>
+  <div id="moreEmpty" class="ccu-empty">Connect the ATEM to see its transitions, keys, audio and macros.</div>
+  <div id="moreGrid" class="more-grid" hidden></div>
+</main>
+
 <div id="picker" class="picker" hidden>
   <div class="picker-box">
     <div class="picker-head"><b id="pickerTitle"></b><button id="pickerClose" aria-label="Close">✕</button></div>
@@ -105,6 +112,7 @@
 </div>
 
 <script src="ccu.js"></script>
+<script src="more.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

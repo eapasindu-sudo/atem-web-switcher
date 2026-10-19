@@ -18,6 +18,8 @@ const { Sony, MODELS: SONY_MODELS } = require('./sony')
 const UPDATE_URL = 'https://raw.githubusercontent.com/eapasindu-sudo/atem-web-switcher/main/version.json'
 
 const PORT = Number(process.env.PORT) || 3000
+// started by Endora Playout (its "ATEM & Cameras" window): Playout updates this copy, so no self-update here
+const EMBEDDED = process.argv.includes('--embedded')
 let IS_EXE = false
 try {
 	IS_EXE = require('node:sea').isSea()
@@ -160,8 +162,151 @@ function snapshot() {
 		inTransition: me ? me.transitionPosition.inTransition : false,
 		position: me ? me.transitionPosition.handlePosition : 0,
 		sources,
+		extras: connected && state ? extras(state, me) : null,
 	}
 }
+
+// ---- MORE page: transition style / rate, fade to black, keyers, PiP, audio, macros ----
+// only what the connected model has; a section that is null is shown as "not on this ATEM"
+const STYLE_RATE = ['mix', 'dip', 'wipe', 'DVE', 'stinger']
+const FL_MIX = { 1: 'off', 2: 'on', 4: 'afv' }
+const CL_MIX = { 0: 'off', 1: 'on', 2: 'afv' }
+
+function inputLabel(state, id) {
+	const i = state.inputs && state.inputs[id]
+	return (i && (i.shortName || i.longName)) || 'IN ' + id
+}
+
+function audioExtras(state) {
+	const fl = state.fairlight
+	if (fl && fl.inputs) {
+		const channels = []
+		for (const [id, inp] of Object.entries(fl.inputs)) {
+			if (!inp) continue
+			for (const [source, src] of Object.entries(inp.sources || {})) {
+				const p = src && src.properties
+				if (!p) continue
+				channels.push({
+					id: Number(id), source, label: inputLabel(state, Number(id)), gain: p.faderGain / 100,
+					mix: FL_MIX[p.mixOption] || 'off', options: (p.supportedMixOptions || []).map((o) => FL_MIX[o]).filter(Boolean),
+				})
+				break // one fader per input (its first / stereo source)
+			}
+		}
+		const m = fl.master && fl.master.properties
+		return { kind: 'fairlight', master: m ? m.faderGain / 100 : null, channels }
+	}
+	const cl = state.audio
+	if (cl && cl.channels) {
+		const channels = Object.entries(cl.channels).filter(([, c]) => c).map(([id, c]) => ({
+			id: Number(id), label: inputLabel(state, Number(id)), gain: c.gain, mix: CL_MIX[c.mixOption] || 'off', options: ['off', 'on', 'afv'],
+		}))
+		return { kind: 'classic', master: cl.master ? cl.master.gain : null, channels }
+	}
+	return null
+}
+
+function extras(state, me) {
+	if (!me) return null
+	const tp = me.transitionProperties || {}
+	const style = tp.nextStyle
+	const ts = me.transitionSettings || {}
+	const styles = STYLE_RATE.map((k, i) => (k === 'mix' || ts[k] ? i : null)).filter((i) => i !== null)
+	const cur = ts[STYLE_RATE[style]]
+	const usk = (me.upstreamKeyers || []).filter(Boolean).map((k) => ({
+		id: k.upstreamKeyerId, onAir: k.onAir, type: k.mixEffectKeyType, canFly: k.canFlyKey, fill: k.fillSource,
+		fillLabel: inputLabel(state, k.fillSource),
+		dve: k.dveSettings ? { x: k.dveSettings.positionX, y: k.dveSettings.positionY, size: k.dveSettings.sizeX } : null,
+	}))
+	const dsk = ((state.video && state.video.downstreamKeyers) || []).map((k, i) => k && ({
+		id: i, onAir: k.onAir, inTransition: k.inTransition, tie: !!(k.properties && k.properties.tie),
+		fill: k.sources ? inputLabel(state, k.sources.fillSource) : '',
+	})).filter(Boolean)
+	const macros = ((state.macro && state.macro.macroProperties) || [])
+		.map((m, i) => m && m.isUsed && { id: i, name: m.name || 'Macro ' + (i + 1) }).filter(Boolean)
+	const player = state.macro && state.macro.macroPlayer
+	const ftb = me.fadeToBlack
+	return {
+		style, styles, rate: cur && typeof cur.rate === 'number' ? cur.rate : null,
+		ftb: ftb ? { black: ftb.isFullyBlack, inTransition: ftb.inTransition, rate: ftb.rate } : null,
+		usk, dsk, audio: audioExtras(state), macros,
+		macroRunning: player && player.isRunning ? player.macroIndex : null,
+	}
+}
+
+// PiP corners for a DVE key (ATEM units: picture is 32 x 18, centre 0,0; size 1000 = full size)
+const PIP = { tl: [-1, 1], tr: [1, 1], bl: [-1, -1], br: [1, -1], c: [0, 0] }
+async function setPip(keyer, corner, size) {
+	const k = atem.state.video.mixEffects[ME].upstreamKeyers[keyer]
+	if (!k || !k.canFlyKey) throw new Error('this key cannot be a picture-in-picture')
+	const s = Math.max(100, Math.min(1000, Number(size) || (k.dveSettings && k.dveSettings.sizeX) || 330))
+	const [cx, cy] = PIP[corner] || PIP.br
+	const margin = 0.6
+	const x = cx * (16 - (16 * s) / 1000 - margin)
+	const y = cy * (9 - (9 * s) / 1000 - margin)
+	if (k.mixEffectKeyType !== 3 || !k.flyEnabled) await atem.setUpstreamKeyerType({ mixEffectKeyType: 3, flyEnabled: true }, ME, keyer)
+	await atem.setUpstreamKeyerDVESettings({ sizeX: s, sizeY: s, positionX: Math.round(x * 1000), positionY: Math.round(y * 1000) }, ME, keyer)
+}
+
+async function setAudio(msg) {
+	const a = audioExtras(atem.state)
+	if (!a) throw new Error('no audio mixer on this ATEM')
+	const fl = a.kind === 'fairlight'
+	if (msg.cmd === 'audioMaster') {
+		const db = Math.max(-60, Math.min(6, Number(msg.gain)))
+		return fl ? atem.setFairlightAudioMixerMasterProps({ faderGain: Math.round(db * 100) }) : atem.setClassicAudioMixerMasterProps({ gain: db })
+	}
+	const ch = a.channels.find((c) => c.id === Number(msg.id))
+	if (!ch) throw new Error('no audio input ' + msg.id)
+	const props = {}
+	if (msg.gain !== undefined) {
+		const db = Math.max(-60, Math.min(10, Number(msg.gain)))
+		if (fl) props.faderGain = Math.round(db * 100)
+		else props.gain = db
+	}
+	if (msg.mix) {
+		const table = fl ? FL_MIX : CL_MIX
+		const v = Object.keys(table).find((k) => table[k] === msg.mix)
+		if (v === undefined || !ch.options.includes(msg.mix)) throw new Error('this input cannot be set to ' + msg.mix)
+		props.mixOption = Number(v)
+	}
+	return fl ? atem.setFairlightAudioMixerSourceProps(ch.id, ch.source, props) : atem.setClassicAudioMixerInputProps(ch.id, props)
+}
+
+async function extraCommand(msg) {
+	const me = atem.state.video.mixEffects[ME]
+	switch (msg.cmd) {
+		case 'style':
+			return atem.setTransitionStyle({ nextStyle: Number(msg.style) }, ME)
+		case 'rate': {
+			const rate = Math.max(1, Math.min(250, Math.round(Number(msg.rate))))
+			const style = me.transitionProperties.nextStyle
+			const set = ['setMixTransitionSettings', 'setDipTransitionSettings', 'setWipeTransitionSettings', 'setDVETransitionSettings'][style]
+			if (!set) throw new Error('this transition has no rate')
+			return atem[set]({ rate }, ME)
+		}
+		case 'ftb':
+			return atem.fadeToBlack(ME)
+		case 'usk':
+			return atem.setUpstreamKeyerOnAir(!!msg.onAir, ME, Number(msg.key))
+		case 'pip':
+			return setPip(Number(msg.key), msg.corner, msg.size)
+		case 'dsk':
+			return atem.setDownstreamKeyOnAir(!!msg.onAir, Number(msg.key))
+		case 'dskAuto':
+			return atem.autoDownstreamKey(Number(msg.key))
+		case 'dskTie':
+			return atem.setDownstreamKeyTie(!!msg.tie, Number(msg.key))
+		case 'audio':
+		case 'audioMaster':
+			return setAudio(msg)
+		case 'macro':
+			return atem.macroRun(Number(msg.index))
+		case 'macroStop':
+			return atem.macroStop()
+	}
+}
+const EXTRA_CMDS = ['style', 'rate', 'ftb', 'usk', 'pip', 'dsk', 'dskAuto', 'dskTie', 'audio', 'audioMaster', 'macro', 'macroStop']
 
 let qrCache = {}
 async function adminInfo() {
@@ -185,7 +330,8 @@ async function adminInfo() {
 		inputsSetting: config.inputs,
 		inputsDetected: detectedInputs(),
 		update,
-		canUpdate: IS_EXE && process.platform === 'win32',
+		canUpdate: IS_EXE && process.platform === 'win32' && !EMBEDDED,
+		embedded: EMBEDDED,
 		sony: { available: sony.available, problem: sony.problem || null, cams: sony.adminCams(), scan: sony.scan, models: SONY_MODELS },
 	}
 }
@@ -275,7 +421,7 @@ async function handleCommand(ws, msg) {
 		if (msg.cmd === 'camRemove') return sony.removeCamera(String(msg.id))
 	}
 	if (msg.cmd === 'checkUpdate' && client.role === 'admin') return checkForUpdate(true)
-	if (msg.cmd === 'installUpdate' && client.role === 'admin' && isLocal(client.ip)) return installUpdate()
+	if (msg.cmd === 'installUpdate' && client.role === 'admin' && isLocal(client.ip) && !EMBEDDED) return installUpdate()
 	if (msg.cmd === 'shutdown') {
 		if (client.role !== 'admin' || !isLocal(client.ip)) return
 		console.log('Stopped from the control window')
@@ -285,6 +431,12 @@ async function handleCommand(ws, msg) {
 		return
 	}
 	if (!atem || !connected) return
+	if (EXTRA_CMDS.includes(msg.cmd)) {
+		return extraCommand(msg).catch((e) => {
+			console.error(`${msg.cmd} failed:`, e.message)
+			ws.send(JSON.stringify({ type: 'error', cmd: msg.cmd, message: e.message }))
+		})
+	}
 	switch (msg.cmd) {
 		case 'program':
 			return atem.changeProgramInput(Number(msg.input), ME)
@@ -399,7 +551,7 @@ server.listen(PORT, () => {
 	for (const a of lanAddresses()) console.log(`  http://${a.address}:${PORT}  (phones/tablets on the same Wi-Fi)`)
 	if (config.ip) connectAtem(config.ip)
 	if (IS_EXE && !process.argv.includes('--no-window')) openControlWindow()
-	if (IS_EXE) {
+	if (IS_EXE && !EMBEDDED) {
 		setTimeout(() => checkForUpdate(false), 5000)
 		setInterval(() => checkForUpdate(false), 6 * 60 * 60 * 1000)
 	}
