@@ -8,12 +8,17 @@
 //   {"cmd":"set","id":"cam1","prop":"iso","value":800}
 //   {"cmd":"rec","id":"cam1","on":1}
 //   {"cmd":"focus","id":"cam1","speed":-3}      (-7..7, 0 stops)
+//   {"cmd":"zoom","id":"cam1","speed":2}        (power zoom lens, 0 stops)
+//   {"cmd":"pulse","id":"cam1","what":"focus","speed":3,"ms":150}   (move, then stop by itself)
+//   {"cmd":"af","id":"cam1","on":1}             (push auto focus: hold / release)
+//   {"cmd":"lv","id":"cam1","on":1}             (send live view pictures)
 //   {"cmd":"quit"}
 // Events (stdout):
 //   {"ev":"ready"}
 //   {"ev":"scan","cams":[{"model":"ILME-FX3","name":"...","ip":"...","mac":"...","ssh":1}]}
 //   {"ev":"status","id":"cam1","state":"connecting|connected|reconnecting|disconnected|error","error":"0x8208"}
 //   {"ev":"props","id":"cam1","props":{"iso":{"v":800,"w":1,"c":[...]},"kelvin":{"v":5600,"w":1,"min":..,"max":..,"step":..}}}
+//   {"ev":"lv","id":"cam1","jpg":"<base64 JPEG>"}
 //   {"ev":"log","msg":"..."}
 // Values are the raw SDK numbers; the web page turns them into text (F2.8, 1/50, ISO 800).
 
@@ -177,6 +182,20 @@ static const PropDef PROPS[] = {
     { "rec",        SDK::CrDeviceProperty_RecordingState },
     { "battery",    SDK::CrDeviceProperty_BatteryRemain },
     { "priority",   SDK::CrDeviceProperty_PriorityKeySettings },
+    { "zoomSpeed",  SDK::CrDeviceProperty_Zoom_Speed_Range },
+    { "zoomStatus", SDK::CrDeviceProperty_Zoom_Operation_Status },
+    { "mediaTime",  SDK::CrDeviceProperty_MediaSLOT1_RemainingTime },
+    { "pp",         SDK::CrDeviceProperty_PictureProfile },
+    { "ppBlack",    SDK::CrDeviceProperty_PictureProfile_BlackLevel },
+    { "ppSat",      SDK::CrDeviceProperty_PictureProfile_Saturation },
+    { "look",       SDK::CrDeviceProperty_CreativeLook },
+    { "lookContrast", SDK::CrDeviceProperty_CreativeLook_Contrast },
+    { "lookSat",    SDK::CrDeviceProperty_CreativeLook_Saturation },
+    { "wbTint",     SDK::CrDeviceProperty_WhiteBalanceTint },
+    { "tintAB",     SDK::CrDeviceProperty_ColorTuningAB },
+    { "tintGM",     SDK::CrDeviceProperty_ColorTuningGM },
+    { "tallyRed",   SDK::CrDeviceProperty_TallyLampControlRed },
+    { "tallyGreen", SDK::CrDeviceProperty_TallyLampControlGreen },
 };
 static const size_t NPROPS = sizeof(PROPS) / sizeof(PROPS[0]);
 
@@ -228,6 +247,28 @@ static long long signedCurrent(CrInt32u type, CrInt64u cur)
     }
 }
 
+// ---------- base64 (live view pictures) ----------
+
+static std::string base64(const CrInt8u* d, size_t n)
+{
+    static const char* t = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string o;
+    o.reserve((n + 2) / 3 * 4);
+    size_t i = 0;
+    for (; i + 2 < n; i += 3) {
+        uint32_t v = (d[i] << 16) | (d[i + 1] << 8) | d[i + 2];
+        o += t[v >> 18]; o += t[(v >> 12) & 63]; o += t[(v >> 6) & 63]; o += t[v & 63];
+    }
+    if (i < n) {
+        uint32_t v = d[i] << 16;
+        if (i + 1 < n) v |= d[i + 1] << 8;
+        o += t[v >> 18]; o += t[(v >> 12) & 63];
+        o += i + 1 < n ? t[(v >> 6) & 63] : '=';
+        o += '=';
+    }
+    return o;
+}
+
 // ---------- cameras ----------
 
 struct Camera;
@@ -241,6 +282,14 @@ struct Camera : public SDK::IDeviceCallback
     std::atomic<bool> connected{ false };
     std::atomic<bool> dirty{ false };
     std::atomic<bool> released{ false };
+    // live view
+    bool lvOn = false;
+    std::chrono::steady_clock::time_point lvLast{};
+    std::vector<CrInt8u> lvBuf;
+    CrLiveViewBlock lvBlock{};
+    // focus / zoom moves that stop by themselves
+    std::chrono::steady_clock::time_point focusStopAt{}, zoomStopAt{};
+    bool focusMoving = false, zoomMoving = false;
 
     void status(const char* state, CrInt32u err = 0)
     {
@@ -308,6 +357,50 @@ struct Camera : public SDK::IDeviceCallback
         if (!getProp(code, p)) return false;
         if (!propWritable(p)) { logmsg(id + ": " + (propName(code) ? propName(code) : "property") + " cannot be changed now"); return false; }
         return writeProp(code, p.valueType, (CrInt64u)value);
+    }
+
+    // one live view JPEG (the SDK keeps the newest frame; frameNo tells it which one we already have)
+    void sendLiveView()
+    {
+        if (lvBuf.empty()) {
+            CrLiveViewInfo info{};
+            auto err = SDK::GetLiveViewImageInfo(handle, reinterpret_cast<SDK::CrImageInfo*>(&info));
+            if (err || !info.bufferSize || info.bufferSize > 16 * 1024 * 1024) return;
+            lvBuf.assign(info.bufferSize, 0);
+            lvBlock = CrLiveViewBlock{};
+        }
+        lvBlock.pData = lvBuf.data();
+        lvBlock.size = (CrInt32u)lvBuf.size();
+        auto err = SDK::GetLiveViewImage(handle, reinterpret_cast<SDK::CrImageDataBlock*>(&lvBlock));
+        if (err) {
+            if (err == SDK::CrWarning_Frame_NotUpdated) return;
+            if (err == SDK::CrError_Memory_Insufficient) lvBuf.clear(); // picture got bigger: ask for the size again
+            return;
+        }
+        CrInt32u n = lvBlock.imageSize;
+        if (!n || n > lvBuf.size()) return;
+        // the JPEG starts at its SOI marker (FF D8) inside our buffer
+        size_t start = 0;
+        while (start + n <= lvBuf.size() && !(lvBuf[start] == 0xFF && lvBuf[start + 1] == 0xD8)) start++;
+        if (start + n > lvBuf.size()) return;
+        emit("{\"ev\":\"lv\",\"id\":" + jstr(id) + ",\"tc\":" + std::to_string(lvBlock.timeCode) + ",\"jpg\":\"" + base64(lvBuf.data() + start, n) + "\"}");
+    }
+
+    void move(bool zoom, int speed, int ms)
+    {
+        writeProp(zoom ? SDK::CrDeviceProperty_Zoom_Operation : SDK::CrDeviceProperty_Focus_Operation,
+                  SDK::CrDataType_Int8, (CrInt64u)(int64_t)(int8_t)speed);
+        auto& stopAt = zoom ? zoomStopAt : focusStopAt;
+        auto& moving = zoom ? zoomMoving : focusMoving;
+        moving = speed != 0 && ms > 0;
+        if (moving) stopAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+    }
+
+    void stopMoves()
+    {
+        auto now = std::chrono::steady_clock::now();
+        if (focusMoving && now >= focusStopAt) move(false, 0, 0);
+        if (zoomMoving && now >= zoomStopAt) move(true, 0, 0);
     }
 
     void sendProps()
@@ -572,7 +665,7 @@ int main()
         std::string line;
         {
             std::unique_lock<std::mutex> lock(g_inMx);
-            g_inCv.wait_for(lock, std::chrono::milliseconds(80), [] { return !g_inbox.empty(); });
+            g_inCv.wait_for(lock, std::chrono::milliseconds(40), [] { return !g_inbox.empty(); });
             if (!g_inbox.empty()) { line = g_inbox.front(); g_inbox.pop_front(); }
         }
 
@@ -595,10 +688,13 @@ int main()
                         cam->dirty = true;
                     }
                 } else if (cmd == "rec") cmdRec(*cam, num(o, "on") != 0);
-                else if (cmd == "focus") {
-                    cam->writeProp(SDK::CrDeviceProperty_Focus_Operation, SDK::CrDataType_Int8,
-                                   (CrInt64u)(int64_t)(int8_t)num(o, "speed"));
-                } else if (cmd == "refresh") cam->dirty = true;
+                else if (cmd == "focus") cam->move(false, (int)num(o, "speed"), 0);
+                else if (cmd == "zoom") cam->move(true, (int)num(o, "speed"), 0);
+                else if (cmd == "pulse") cam->move(get(o, "what") == "zoom", (int)num(o, "speed"), (int)num(o, "ms", 150));
+                else if (cmd == "af") cam->writeProp(SDK::CrDeviceProperty_PushAutoFocus, SDK::CrDataType_UInt16Array,
+                                                     num(o, "on") ? SDK::CrPushAutoFocus_Down : SDK::CrPushAutoFocus_Up);
+                else if (cmd == "lv") { cam->lvOn = num(o, "on") != 0; if (!cam->lvOn) cam->lvBuf.clear(); }
+                else if (cmd == "refresh") cam->dirty = true;
             }
         }
 
@@ -615,6 +711,12 @@ int main()
             if (!cam->connected) continue;
             if (!setupDone[cam->id]) { setupDone[cam->id] = true; onConnectedSetup(*cam); }
             if (cam->dirty.exchange(false) || poll) cam->sendProps();
+            cam->stopMoves();
+            // live view: about 8 pictures a second for the cameras someone is looking at
+            if (cam->lvOn && now - cam->lvLast > std::chrono::milliseconds(120)) {
+                cam->lvLast = now;
+                cam->sendLiveView();
+            }
         }
     }
 

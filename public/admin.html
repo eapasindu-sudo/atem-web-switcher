@@ -98,6 +98,11 @@
           <button type="button" id="camCancel">Cancel</button>
         </div>
       </form>
+      <div id="ccuOptions" class="opts">
+        <label><input type="checkbox" id="optAtemControl"><span>ATEM Software Control's <b>Camera</b> page (and ATEM camera control panels) controls these cameras</span></label>
+        <label><input type="checkbox" id="optTally"><span>Tally lamps on the cameras (red = program, green = preview)</span></label>
+        <label><input type="checkbox" id="optRecWithAtem"><span>Camera REC starts and stops with the ATEM's own recording</span></label>
+      </div>
       <details class="small muted">
         <summary>How to set up the camera</summary>
         <ol>
@@ -106,6 +111,19 @@
           <li>Set Access Authen. Settings to On. The user name and password are in Access Authen. Info.</li>
           <li>The camera's IP address is shown in Network, Wi-Fi, Wi-Fi Info (or use Find cameras).</li>
           <li>ATEM input: the ATEM button this camera is plugged into, so phones show its tally and follow preview.</li>
+          <li>Network cable instead of Wi-Fi: plug a USB-C to LAN adapter into the camera, connect it to the same router or switch as this PC, and set the camera menu to Wired LAN (Network, Wired LAN, IP Address Setting). Use the wired IP address here. It is steadier than Wi-Fi and gives a smoother live picture.</li>
+          <li>ATEM Software Control: open its <b>Camera</b> page. CAM 1, CAM 2 … there are the ATEM inputs, so set each Sony camera's ATEM input above. Iris, shutter, gain (ISO), white balance, tint, ND, focus, zoom and record then move the Sony camera, like Middle Control.</li>
+        </ol>
+      </details>
+      <details class="small muted">
+        <summary>Stream Deck (Bitfocus Companion) and MIDI knobs</summary>
+        <ol>
+          <li>In Companion add the <b>Generic: HTTP Requests</b> connection, then make buttons with a GET request to these addresses:</li>
+          <li><code id="apiBase">http://this-pc:3000</code><code>/api/sony/1/rec/toggle</code> REC on camera 1 (start, stop or toggle). Use <code>all</code> instead of 1 for every camera.</li>
+          <li><code>/api/sony/1/iris/up</code>, <code>/iris/down</code>, also <code>shutter</code>, <code>iso</code>, <code>nd</code>, <code>kelvin</code>, <code>wbTint</code>, <code>tintAB</code>, <code>tintGM</code>, <code>look</code>, <code>pp</code>.</li>
+          <li><code>/api/sony/1/focus/near</code>, <code>/focus/far</code>, <code>/zoom/in</code>, <code>/zoom/out</code>, <code>/af</code>, <code>/preset/2</code> (recall preset 2), <code>/match</code> (copy camera 1 to all).</li>
+          <li><code>/api/sony</code> lists the cameras and whether they are recording.</li>
+          <li>MIDI knobs: open the CCU page in Chrome or Edge on this PC (http://localhost:3000), tap <b>MIDI</b>, tap a control, then turn a knob or press a key.</li>
         </ol>
       </details>
     </div>

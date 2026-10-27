@@ -19,10 +19,13 @@
   let pendingPos = null
 
   // everything a stray tap could change; blocked while locked
-  const BLOCKED = ['program', 'preview', 'cut', 'auto', 'tbar', 'camSet', 'camRec', 'camFocus',
+  const BLOCKED = ['program', 'preview', 'cut', 'auto', 'tbar', 'camSet', 'camStep', 'camRec', 'camRecAll', 'camFocus', 'camZoom', 'camAF',
+    'camPresetSave', 'camPresetRecall', 'camPresetDelete', 'camMatch',
     'style', 'rate', 'ftb', 'usk', 'pip', 'dsk', 'dskAuto', 'dskTie', 'audio', 'audioMaster', 'macro']
   function send(obj) {
-    if (locked && BLOCKED.includes(obj.cmd) && !(obj.cmd === 'camFocus' && obj.speed === 0)) return
+    // letting go of focus / zoom / AF always gets through, so nothing keeps moving after locking
+    const release = (obj.cmd === 'camFocus' || obj.cmd === 'camZoom') ? obj.speed === 0 : obj.cmd === 'camAF' && !obj.on
+    if (locked && BLOCKED.includes(obj.cmd) && !release) return
     if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj))
   }
 
@@ -74,6 +77,7 @@
       const msg = JSON.parse(e.data)
       if (msg.type === 'state') render(msg)
       if (msg.type === 'cams') onCams(msg)
+      if (msg.type === 'lv') CCU.onLive(msg)
       if (msg.type === 'error') MORE.onError(msg)
     }
     sock.onclose = () => {
@@ -123,6 +127,7 @@
     $('more').hidden = v !== 'more'
     for (const b of $('viewSeg').children) b.classList.toggle('on', b.dataset.view === v)
     document.body.classList.toggle('ccu-view', v === 'ccu')
+    CCU.setVisible(v === 'ccu' && !document.hidden)
   }
   for (const b of $('viewSeg').children) {
     b.addEventListener('click', () => {
@@ -278,6 +283,7 @@
 
   // reconnect straight away when the phone wakes up or the app comes back to the front
   document.addEventListener('visibilitychange', () => {
+    CCU.setVisible(view === 'ccu' && !$('ccu').hidden && !document.hidden)
     if (document.visibilityState === 'visible' && (!ws || ws.readyState > 1)) connectSocket()
   })
 

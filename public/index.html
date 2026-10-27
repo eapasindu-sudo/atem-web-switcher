@@ -69,14 +69,26 @@
 <main id="ccu" class="ccu" hidden>
   <div class="ccu-top">
     <div id="ccuTabs" class="ccu-tabs"></div>
+    <div id="ccuPages" class="ccu-pages">
+      <button data-page="exposure" class="on">EXPOSURE</button>
+      <button data-page="look">LOOK</button>
+      <button data-page="presets">PRESETS</button>
+    </div>
+    <button id="ccuLive" class="ccu-follow" title="Show the camera picture">LIVE</button>
+    <button id="ccuMidi" class="ccu-follow" title="MIDI knobs: tap to learn" hidden>MIDI</button>
     <button id="ccuFollow" class="ccu-follow" title="Show the camera that is on preview">Follow preview</button>
   </div>
+  <div id="ccuLearn" class="ccu-learn" hidden></div>
   <div class="ccu-body">
     <div id="ccuGrid" class="ccu-grid"></div>
     <div id="ccuEmpty" class="ccu-empty" hidden></div>
     <div id="ccuSide" class="ccu-side">
-      <button id="ccuRec" class="ccu-rec"><span class="rec-dot"></span><span id="ccuRecText">REC</span></button>
-      <div class="ccu-focus">
+      <div id="ccuView" class="ccu-live" hidden><img id="ccuImg" alt=""><span id="ccuTc"></span></div>
+      <div class="rec-row">
+        <button id="ccuRec" class="ccu-rec" data-learn="rec"><span class="rec-dot"></span><span id="ccuRecText">REC</span></button>
+        <button id="ccuRecAll" class="ccu-recall" title="Start or stop REC on every camera">ALL</button>
+      </div>
+      <div class="ccu-focus" data-learn="focus">
         <div class="ccu-label"><span>FOCUS</span><em id="ccuFocusMode" class="tap">--</em></div>
         <div class="focus-row">
           <button class="focus-btn" data-dir="-2">«</button>
@@ -84,7 +96,14 @@
           <button class="focus-btn" data-dir="1">›</button>
           <button class="focus-btn" data-dir="2">»</button>
         </div>
-        <div class="focus-hint"><span>NEAR</span><span>FAR</span></div>
+        <div class="focus-hint"><span>NEAR</span><button id="ccuAF" class="af-btn" data-learn="af">PUSH AF</button><span>FAR</span></div>
+      </div>
+      <div id="ccuZoom" class="ccu-focus" data-learn="zoom" hidden>
+        <div class="ccu-label"><span>ZOOM</span></div>
+        <div class="focus-row zoom-row">
+          <button class="zoom-btn" data-dir="-1">W</button>
+          <button class="zoom-btn" data-dir="1">T</button>
+        </div>
       </div>
       <div id="ccuBattery" class="ccu-battery"></div>
     </div>

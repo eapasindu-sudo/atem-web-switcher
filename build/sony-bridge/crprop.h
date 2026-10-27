@@ -27,3 +27,20 @@ inline bool propWritable(const CrProp& p)
 {
     return p.enableFlag == SCRSDK::CrEnableValue_True || p.enableFlag == SCRSDK::CrEnableValue_SetOnly;
 }
+
+// Plain-struct views of SCRSDK::CrImageInfo and SCRSDK::CrImageDataBlock (live view), for the same reason.
+struct CrLiveViewInfo {
+    CrInt32u width;
+    CrInt32u height;
+    CrInt32u bufferSize;
+};
+struct CrLiveViewBlock {
+    CrInt32u frameNo;
+    CrInt32u size;
+    CrInt8u* pData;
+    CrInt32u imageSize;
+    CrInt32u timeCode;
+};
+#include "CrImageDataBlock.h"
+static_assert(sizeof(CrLiveViewInfo) == sizeof(SCRSDK::CrImageInfo), "CrLiveViewInfo must match CrImageInfo");
+static_assert(sizeof(CrLiveViewBlock) == sizeof(SCRSDK::CrImageDataBlock), "CrLiveViewBlock must match CrImageDataBlock");

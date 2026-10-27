@@ -93,6 +93,13 @@ sony.on('change', () => {
 	broadcastAdmin().catch(() => {})
 })
 sony.on('admin', () => broadcastAdmin().catch(() => {}))
+// live view pictures go only to the pages showing that camera
+sony.on('lv', (id, jpg, tc) => {
+	const msg = JSON.stringify({ type: 'lv', id, jpg, tc })
+	for (const [ws, c] of clients) {
+		if (c.watching === id && ws.readyState === 1 && ws.bufferedAmount < 512 * 1024) ws.send(msg)
+	}
+})
 let atem = null
 let atemIp = null
 let connected = false
@@ -111,6 +118,12 @@ if (global.EMBEDDED_PUBLIC) {
 	app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')))
 	app.use(express.static(path.join(__dirname, 'public')))
 }
+// Stream Deck (Bitfocus Companion "Generic HTTP"): GET /api/sony/1/rec/toggle, /api/sony/all/iris/up ...
+app.get('/api/sony', (req, res) => res.json(sony.cams().map((c, i) => ({ n: i + 1, name: c.name, input: c.input, status: c.status, rec: !!(c.props.rec && c.props.rec.v === 1) }))))
+app.get('/api/sony/:cam/:action/:value?', (req, res) => {
+	const r = sony.http(req.params.cam, req.params.action, req.params.value)
+	res.status(r === 'ok' ? 200 : 404).type('text').send(r)
+})
 const server = http.createServer(app)
 const wss = new WebSocketServer({ server })
 
@@ -332,7 +345,7 @@ async function adminInfo() {
 		update,
 		canUpdate: IS_EXE && process.platform === 'win32' && !EMBEDDED,
 		embedded: EMBEDDED,
-		sony: { available: sony.available, problem: sony.problem || null, cams: sony.adminCams(), scan: sony.scan, models: SONY_MODELS },
+		sony: { available: sony.available, problem: sony.problem || null, cams: sony.adminCams(), scan: sony.scan, models: SONY_MODELS, ccu: config.ccu },
 	}
 }
 
@@ -344,7 +357,7 @@ function broadcast() {
 }
 
 function camsMessage() {
-	return JSON.stringify({ type: 'cams', available: sony.available, cams: sony.cams() })
+	return JSON.stringify({ type: 'cams', available: sony.available, cams: sony.cams(), presets: sony.presets() })
 }
 
 function broadcastCams() {
@@ -383,6 +396,7 @@ async function connectAtem(ip) {
 	a.on('error', (e) => console.error('ATEM error:', e))
 	a.on('connected', () => {
 		connected = true
+		sony.atemConnected()
 		console.log(`Connected to ATEM at ${ip} (${a.state.info.productIdentifier || 'unknown model'})`)
 		broadcast()
 		broadcastAdmin().catch(() => {})
@@ -392,10 +406,32 @@ async function connectAtem(ip) {
 		console.log('ATEM disconnected, retrying...')
 		broadcast()
 	})
-	a.on('stateChanged', () => broadcast())
+	a.on('stateChanged', () => {
+		broadcast()
+		atemToSony(a.state)
+	})
+	// ATEM Software Control's Camera page and camera control panels: each change comes in as CCdP
+	a.on('receivedCommands', (cmds) => {
+		for (const cmd of cmds) {
+			if (cmd.constructor.rawName !== 'CCdP') continue
+			const p = cmd.properties || {}
+			const data = p.numberData && p.numberData.length ? p.numberData : (p.boolData || []).map(Number)
+			sony.atemCameraControl(cmd.source, cmd.category, cmd.parameter, data)
+		}
+	})
 	console.log(`Connecting to ATEM at ${ip} ...`)
 	a.connect(ip).catch((e) => console.error('Connect failed:', e.message))
 	broadcast()
+}
+
+// tally lamps follow program / preview, camera REC can follow the ATEM's own recording
+let atemRecording = null
+function atemToSony(state) {
+	const me = state && state.video && state.video.mixEffects[ME]
+	if (me) sony.atemState({ program: me.programInput, preview: me.previewInput, inTransition: me.transitionPosition.inTransition })
+	const rec = state && state.recording && state.recording.status ? state.recording.status.state === 1 : null
+	if (rec !== null && atemRecording !== null && rec !== atemRecording) sony.atemRecording(rec)
+	atemRecording = rec
 }
 
 async function handleCommand(ws, msg) {
@@ -414,8 +450,18 @@ async function handleCommand(ws, msg) {
 		broadcast()
 		return broadcastAdmin()
 	}
-	if (/^cam(Set|Rec|Focus|Reconnect)$/.test(msg.cmd)) return sony.command(msg)
+	if (msg.cmd === 'camWatch') {
+		const id = msg.id ? String(msg.id) : null
+		if (client.watching !== id) {
+			sony.watch(client.watching, -1)
+			client.watching = id
+			sony.watch(id, +1)
+		}
+		return
+	}
+	if (/^cam(Set|Step|Rec|RecAll|Focus|Zoom|AF|Reconnect|PresetSave|PresetRecall|PresetDelete|Match)$/.test(msg.cmd)) return sony.command(msg)
 	if (client.role === 'admin' && isLocal(client.ip)) {
+		if (msg.cmd === 'camOptions') return sony.setOptions(msg.options || {})
 		if (msg.cmd === 'camScan') return sony.startScan()
 		if (msg.cmd === 'camSave') return sony.saveCamera(msg.cam || {})
 		if (msg.cmd === 'camRemove') return sony.removeCamera(String(msg.id))
@@ -471,6 +517,8 @@ wss.on('connection', (ws, req) => {
 		Promise.resolve(handleCommand(ws, msg)).catch((e) => console.error('Command failed:', e.message))
 	})
 	ws.on('close', () => {
+		const c = clients.get(ws)
+		if (c && c.watching) sony.watch(c.watching, -1)
 		clients.delete(ws)
 		broadcastAdmin().catch(() => {})
 	})

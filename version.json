@@ -1,5 +1,5 @@
 {
-  "version": "1.4.0",
+  "version": "1.5.0",
   "url": "https://github.com/eapasindu-sudo/atem-web-switcher/raw/main/download/ATEM-Switcher-Setup.exe",
-  "notes": "MORE page: transitions, Fade to Black, keys and picture-in-picture, audio mixer, macros"
+  "notes": "Sony CCU: ATEM Software Control camera page controls the Sony cameras, live picture, LOOK page (picture profile, creative look, tint), presets and match cameras, zoom, push AF, REC all and REC with ATEM record, tally lamps, Stream Deck / Companion URLs, MIDI knobs"
 }

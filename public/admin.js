@@ -93,12 +93,12 @@
       : `Phones show inputs 1 to ${a.inputsSetting}.`
 
     renderUpdate(a)
-    renderSony(a.sony)
+    renderSony(a.sony, a)
   }
 
   // ---- Sony cameras ----
   let sony = null
-  function renderSony(info) {
+  function renderSony(info, admin) {
     sony = info
     if (!info) return
     $('sonyMissing').hidden = info.available
@@ -114,6 +114,12 @@
       $('camInput').add(new Option('None', '0'))
       for (let i = 1; i <= 8; i++) $('camInput').add(new Option('Input ' + i, String(i)))
     }
+    const ccu = info.ccu || {}
+    $('optAtemControl').checked = ccu.atemControl !== false
+    $('optTally').checked = ccu.tally !== false
+    $('optRecWithAtem').checked = !!ccu.recWithAtem
+    const lan = admin && admin.urls && admin.urls[0]
+    $('apiBase').textContent = lan ? lan.url.replace(/\/$/, '') : 'http://localhost:' + ((admin && admin.port) || 3000)
     const list = $('camList')
     list.innerHTML = ''
     const modelName = (m) => (info.models.find((x) => x[0] === m) || [m, m])[1]
@@ -179,6 +185,9 @@
     openCamForm({ name: 'CAM ' + (((sony && sony.cams.length) || 0) + 1), input })
   })
   $('camCancel').addEventListener('click', () => { $('camForm').hidden = true })
+  for (const [id, key] of [['optAtemControl', 'atemControl'], ['optTally', 'tally'], ['optRecWithAtem', 'recWithAtem']]) {
+    $(id).addEventListener('change', () => send({ cmd: 'camOptions', options: { [key]: $(id).checked } }))
+  }
   $('camScan').addEventListener('click', () => send({ cmd: 'camScan' }))
   $('camForm').addEventListener('submit', (e) => {
     e.preventDefault()

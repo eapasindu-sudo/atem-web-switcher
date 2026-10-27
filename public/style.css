@@ -294,7 +294,7 @@ main[hidden], [hidden].ccu-side, [hidden].ccu-empty, [hidden].view-seg, [hidden]
 }
 .ccu-steps button:active, .focus-btn:active { background: #fff; color: #000; }
 
-.ccu-side { width: clamp(150px, 22vw, 230px); display: flex; flex-direction: column; gap: 10px; }
+.ccu-side { width: clamp(150px, 22vw, 230px); display: flex; flex-direction: column; gap: 10px; overflow-y: auto; scrollbar-width: none; }
 .ccu-rec {
   flex: 1; max-height: 140px; display: flex; align-items: center; justify-content: center; gap: 10px;
   background: var(--btn); color: #fff; border: 0; border-radius: 12px; font-size: 24px; font-weight: 800; letter-spacing: 2px; cursor: pointer;
@@ -318,6 +318,37 @@ main[hidden], [hidden].ccu-side, [hidden].ccu-empty, [hidden].view-seg, [hidden]
 .picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 8px; padding: 12px; overflow-y: auto; }
 .picker-grid button { background: var(--btn); color: #fff; border: 0; border-radius: 8px; padding: 12px 4px; font-size: 17px; font-weight: 700; cursor: pointer; font-variant-numeric: tabular-nums; }
 .picker-grid button.cur { background: #fff; color: #000; }
+
+/* page switch, live picture, REC ALL, zoom, presets, MIDI learn */
+.ccu-pages { flex: none; display: flex; background: var(--btn); border-radius: 10px; padding: 3px; gap: 3px; }
+.ccu-pages button { background: none; color: #aaa; border: 0; border-radius: 7px; padding: 0 10px; font-size: 12px; font-weight: 800; letter-spacing: 1px; cursor: pointer; }
+.ccu-pages button.on { background: #fff; color: #000; }
+.ccu-live { position: relative; background: #000; border-radius: 10px; overflow: hidden; aspect-ratio: 16 / 9; flex: none; }
+.ccu-live img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.ccu-live span { position: absolute; left: 6px; bottom: 4px; font-size: 11px; font-weight: 700; color: #fff; text-shadow: 0 0 3px #000; font-variant-numeric: tabular-nums; }
+.ccu-live.big { position: fixed; inset: 0; z-index: 15; border-radius: 0; aspect-ratio: auto; }
+[hidden].ccu-live, [hidden].ccu-learn, [hidden].ccu-focus { display: none !important; }
+.rec-row { flex: 1 0 52px; max-height: 140px; display: flex; gap: 6px; }
+.rec-row .ccu-rec { max-height: none; }
+.ccu-recall { width: 52px; background: var(--btn); color: #ff8a8a; border: 0; border-radius: 12px; font-size: 13px; font-weight: 800; cursor: pointer; }
+.ccu-recall.on { background: var(--red); color: #fff; }
+.af-btn { background: #333; color: #ddd; border: 0; border-radius: 5px; font-size: 10px; font-weight: 800; letter-spacing: 1px; padding: 3px 8px; cursor: pointer; }
+.af-btn:active, .zoom-btn:active { background: #fff; color: #000; }
+.zoom-row { grid-template-columns: 1fr 1fr; }
+.zoom-btn { height: clamp(40px, 9vh, 60px); background: var(--btn); color: #fff; border: 0; border-radius: 8px; font-size: 20px; font-weight: 800; cursor: pointer; touch-action: none; }
+.ccu-grid.presets { grid-auto-rows: min-content; align-content: start; overflow-y: auto; }
+.preset { background: var(--panel); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.preset b { font-size: 16px; }
+.preset small { color: #888; font-size: 11px; }
+.preset-row { display: flex; gap: 6px; }
+.preset-row button, .preset-new button { flex: 1; background: var(--btn); color: #fff; border: 0; border-radius: 8px; padding: 10px 4px; font-size: 13px; font-weight: 700; cursor: pointer; }
+.preset-row button.del { flex: none; width: 38px; color: #ff8a8a; }
+.preset-new { background: #10331a; }
+.preset-new button { background: #1d5a2e; }
+.ccu-learn { background: #3a2c10; color: var(--amber); border-radius: 10px; padding: 8px 12px; font-size: 14px; display: flex; gap: 10px; align-items: center; }
+.ccu-learn button { background: #5a4418; color: #fff; border: 0; border-radius: 6px; padding: 6px 10px; font-size: 12px; cursor: pointer; }
+.ccu.learning [data-learn] { outline: 2px dashed var(--amber); outline-offset: -2px; }
+.ccu.learning [data-learn].learn-pick { outline: 3px solid var(--amber); }
 
 @media (max-height: 420px) {
   .ccu { gap: 6px; }
@@ -352,3 +383,6 @@ main[hidden], [hidden].ccu-side, [hidden].ccu-empty, [hidden].view-seg, [hidden]
 .mbtn:active { background: #fff; color: #000; }
 .more-err { background: #3a1210; color: #ff8a8a; border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; }
 .more-err[hidden] { display: none; }
+.ccu-grid.dense { grid-template-columns: repeat(auto-fit, minmax(105px, 1fr)); }
+.ccu-grid.dense .ccu-value { font-size: clamp(16px, 2.8vw, 32px); }
+.ccu-grid.dense .ccu-steps button { height: clamp(30px, 7vh, 50px); font-size: 22px; }

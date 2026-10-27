@@ -47,6 +47,58 @@ function errorText(code) {
 	return ERRORS[n] || (code ? `Camera error ${code}` : '')
 }
 
+// settings a preset stores, in the order they are put back (white balance mode before Kelvin)
+const PRESET_KEYS = ['wb', 'kelvin', 'wbTint', 'tintAB', 'tintGM', 'iris', 'shutter', 'angle', 'iso', 'ei', 'nd', 'pp', 'ppBlack', 'ppSat', 'look', 'lookContrast', 'lookSat']
+
+// all the values a setting can take: the camera's list, or every step of its range
+function optionsOf(p) {
+	if (!p) return []
+	if (p.c) return p.c
+	if (typeof p.min === 'number' && typeof p.step === 'number') {
+		const list = []
+		for (let x = p.min; x <= p.max && list.length < 400; x += p.step || 1) list.push(x)
+		return list
+	}
+	return []
+}
+
+// the next value up or down from the current one
+function stepOf(p, dir) {
+	const list = optionsOf(p)
+	if (!list.length) return null
+	const i = list.findIndex((x) => String(x) === String(p.v))
+	if (i < 0) {
+		const v = Number(p.v)
+		const next = dir > 0 ? list.find((x) => Number(x) > v) : [...list].reverse().find((x) => Number(x) < v)
+		return next === undefined ? null : next
+	}
+	const j = Math.max(0, Math.min(list.length - 1, i + dir))
+	return j === i ? null : list[j]
+}
+
+// the candidate closest to target, measured by measure(candidate) on a log scale
+function nearest(list, target, measure) {
+	let best = null, bestD = Infinity
+	for (const x of list) {
+		const m = measure(x)
+		if (!(m > 0)) continue
+		const d = Math.abs(Math.log(m / target))
+		if (d < bestD) { bestD = d; best = x }
+	}
+	return best
+}
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
+const shutterSeconds = (v) => { const num = Math.floor(v / 65536), den = v % 65536; return v && v !== 0xffffffff && den ? num / den : 0 }
+const isoValue = (v) => ((v >>> 24) === 0 && (v & 0xffffff) !== 0xffffff ? v & 0xffffff : 0)
+const irisF = (v) => (v > 0 && v < 0xfffd ? v / 100 : 0)
+function ndStops(v) {
+	try {
+		const n = BigInt(v), num = Number(n >> 32n), den = Number(n & 0xffffffffn)
+		return num && den && n !== 0xffffffffffffffffn ? Math.log2(den / num) : -1
+	} catch { return -1 }
+}
+
 function findBridge(isExe) {
 	const candidates = []
 	if (process.env.SONY_BRIDGE) candidates.push(process.env.SONY_BRIDGE)
@@ -79,6 +131,11 @@ class Sony extends EventEmitter {
 		this.ready = false
 		this.restarts = 0
 		this.queue = []
+		this.watchers = {} // id -> number of screens showing its live view
+		this.lastTally = {} // id -> 'pgm' | 'pvw' | ''
+		this.cc = { last: {}, readyAt: Infinity } // ATEM camera control values seen
+		if (!Array.isArray(config.presets)) config.presets = []
+		config.ccu = Object.assign({ atemControl: true, tally: true, recWithAtem: false }, config.ccu || {})
 		if (this.bridgePath) this.start()
 	}
 
@@ -163,6 +220,11 @@ class Sony extends EventEmitter {
 					if (cam && this.live[ev.id] && this.live[ev.id].status !== 'connected') this.connect(cam)
 				}, wait)
 			}
+			if (ev.state === 'connected') {
+				if (this.watchers[ev.id] > 0) this.send({ cmd: 'lv', id: ev.id, on: 1 })
+				delete this.lastTally[ev.id]
+				setTimeout(() => this.applyTally(), 1500)
+			}
 			console.log(`Sony ${ev.id}: ${ev.state}${ev.error ? ' ' + ev.error : ''}`)
 			this.emit('change')
 		} else if (ev.ev === 'props') {
@@ -172,6 +234,8 @@ class Sony extends EventEmitter {
 			live.propsJson = json
 			live.props = ev.props
 			this.emit('change')
+		} else if (ev.ev === 'lv') {
+			this.emit('lv', ev.id, ev.jpg, ev.tc)
 		} else if (ev.ev === 'scan') {
 			this.scan = { state: 'done', cams: ev.cams || [] }
 			this.emit('admin')
@@ -231,15 +295,280 @@ class Sony extends EventEmitter {
 
 	// ---- from phones ----
 	command(msg) {
+		if (msg.cmd === 'camRecAll') return this.recAll(!!msg.on)
+		if (msg.cmd === 'camPresetSave') return this.savePreset(String(msg.id || ''), msg.name)
+		if (msg.cmd === 'camPresetRecall') return this.recallPreset(Number(msg.preset), msg.id === 'all' ? 'all' : String(msg.id || ''))
+		if (msg.cmd === 'camPresetDelete') return this.deletePreset(Number(msg.preset))
+		if (msg.cmd === 'camMatch') return this.match(String(msg.id || ''))
 		const id = String(msg.id || '')
 		if (!this.config.cameras.some((c) => c.id === id)) return
-		if (msg.cmd === 'camSet') this.send({ cmd: 'set', id, prop: String(msg.prop), value: String(msg.value) })
+		const speed = (v, max = 8) => clamp(Math.round(Number(v) || 0), -max, max)
+		if (msg.cmd === 'camSet') this.set(id, String(msg.prop), msg.value)
+		else if (msg.cmd === 'camStep') this.step(id, String(msg.prop), Number(msg.dir) > 0 ? 1 : -1)
 		else if (msg.cmd === 'camRec') this.send({ cmd: 'rec', id, on: msg.on ? 1 : 0 })
-		else if (msg.cmd === 'camFocus') this.send({ cmd: 'focus', id, speed: Math.max(-7, Math.min(7, Math.round(Number(msg.speed) || 0))) })
+		else if (msg.cmd === 'camFocus') this.send({ cmd: 'focus', id, speed: speed(msg.speed, 7) })
+		else if (msg.cmd === 'camZoom') this.send({ cmd: 'zoom', id, speed: speed(msg.speed) })
+		else if (msg.cmd === 'camAF') this.send({ cmd: 'af', id, on: msg.on ? 1 : 0 })
 		else if (msg.cmd === 'camReconnect') {
 			const cam = this.config.cameras.find((c) => c.id === id)
 			if (cam) this.connect(cam)
 		}
+	}
+
+	props(id) {
+		return (this.live[id] && this.live[id].status === 'connected' && this.live[id].props) || null
+	}
+
+	set(id, key, value) {
+		if (value === null || value === undefined) return
+		this.send({ cmd: 'set', id, prop: key, value: String(value) })
+	}
+
+	step(id, key, dir) {
+		const p = this.props(id)
+		if (p && p[key] && p[key].w) this.set(id, key, stepOf(p[key], dir))
+	}
+
+	pulse(id, what, speed, ms) {
+		this.send({ cmd: 'pulse', id, what, speed: clamp(Math.round(speed), -8, 8), ms: Math.round(ms) })
+	}
+
+	recAll(on) {
+		for (const c of this.config.cameras) if (this.props(c.id)) this.send({ cmd: 'rec', id: c.id, on: on ? 1 : 0 })
+	}
+
+	// ---- Stream Deck / Companion: GET /api/sony/<cam>/<action>/<value> ----
+	// cam = 1, 2, 3 (order in the PC window), the camera's name, or "all"
+	http(cam, action, value) {
+		const list = this.config.cameras
+		const ids = cam === 'all' ? list.map((c) => c.id)
+			: [(list[Number(cam) - 1] || list.find((c) => c.name.toLowerCase() === String(cam).toLowerCase()) || {}).id].filter(Boolean)
+		if (!ids.length) return 'no such camera'
+		const v = String(value || '').toLowerCase()
+		for (const id of ids) {
+			const p = this.props(id)
+			if (!p) continue
+			if (action === 'rec') {
+				const on = v === 'toggle' || v === '' ? !(p.rec && p.rec.v === 1) : v === 'start' || v === 'on' || v === '1'
+				this.send({ cmd: 'rec', id, on: on ? 1 : 0 })
+			} else if (action === 'focus') this.pulse(id, 'focus', v === 'near' ? -3 : 3, 250)
+			else if (action === 'zoom') this.pulse(id, 'zoom', v === 'out' || v === 'wide' ? -4 : 4, 300)
+			else if (action === 'af') this.send({ cmd: 'af', id, on: 1 }), setTimeout(() => this.send({ cmd: 'af', id, on: 0 }), 600)
+			else if (action === 'preset') this.recallPreset(Number(value) - 1, id)
+			else if (action === 'match') this.match(id)
+			else if (p[action]) {
+				if (v === 'up' || v === 'down') this.step(id, action, v === 'up' ? 1 : -1)
+				else this.set(id, action, value)
+			} else return 'unknown action'
+		}
+		return 'ok'
+	}
+
+	// ---- live view: only for cameras someone is looking at ----
+	watch(id, delta) {
+		if (!id) return
+		const before = this.watchers[id] || 0
+		const now = Math.max(0, before + delta)
+		this.watchers[id] = now
+		if (!before && now) this.send({ cmd: 'lv', id, on: 1 })
+		if (before && !now) this.send({ cmd: 'lv', id, on: 0 })
+	}
+
+	// ---- presets and matching ----
+	snapshot(id) {
+		const p = this.props(id)
+		if (!p) return null
+		const values = {}
+		for (const k of PRESET_KEYS) if (p[k] && p[k].w) values[k] = p[k].v
+		return values
+	}
+
+	// puts the values back one after another (the camera needs the WB mode before the Kelvin)
+	apply(id, values) {
+		const p = this.props(id)
+		if (!p || !values) return
+		const keys = PRESET_KEYS.filter((k) => values[k] !== undefined && p[k] && p[k].w && String(p[k].v) !== String(values[k]))
+		keys.forEach((k, i) => setTimeout(() => this.set(id, k, values[k]), i * 150))
+	}
+
+	savePreset(id, name) {
+		const values = this.snapshot(id)
+		if (!values) return
+		const cam = this.config.cameras.find((c) => c.id === id)
+		this.config.presets.push({ name: String(name || '').trim().slice(0, 20) || `Preset ${this.config.presets.length + 1}`, from: cam ? cam.name : '', values })
+		this.save()
+		this.emit('change')
+	}
+
+	recallPreset(index, target) {
+		const preset = this.config.presets[index]
+		if (!preset) return
+		const ids = target === 'all' ? this.config.cameras.map((c) => c.id) : [target]
+		for (const id of ids) this.apply(id, preset.values)
+	}
+
+	deletePreset(index) {
+		if (!this.config.presets[index]) return
+		this.config.presets.splice(index, 1)
+		this.save()
+		this.emit('change')
+	}
+
+	// copy one camera's look and exposure to every other camera
+	match(fromId) {
+		const values = this.snapshot(fromId)
+		if (!values) return
+		for (const c of this.config.cameras) if (c.id !== fromId) this.apply(c.id, values)
+	}
+
+	// ---- settings from the PC window ----
+	setOptions(o) {
+		for (const k of ['atemControl', 'tally', 'recWithAtem']) if (typeof o[k] === 'boolean') this.config.ccu[k] = o[k]
+		this.save()
+		if (!this.config.ccu.tally) this.lastTally = {}
+		this.applyTally()
+		this.emit('admin')
+	}
+
+	// ---- ATEM: tally lamps and recording ----
+	atemState(state) {
+		this.atem = state
+		this.applyTally()
+	}
+
+	applyTally() {
+		const a = this.atem
+		if (!a || !this.config.ccu.tally) return
+		for (const c of this.config.cameras) {
+			const p = this.props(c.id)
+			if (!p || !c.input) continue
+			const t = a.program === c.input || (a.inTransition && a.preview === c.input) ? 'pgm' : a.preview === c.input ? 'pvw' : ''
+			if (this.lastTally[c.id] === t) continue
+			this.lastTally[c.id] = t
+			if (p.tallyRed && p.tallyRed.w) this.set(c.id, 'tallyRed', t === 'pgm' ? 2 : 1)
+			if (p.tallyGreen && p.tallyGreen.w) this.set(c.id, 'tallyGreen', t === 'pvw' ? 2 : 1)
+		}
+	}
+
+	atemRecording(on) {
+		if (this.config.ccu.recWithAtem) this.recAll(on)
+	}
+
+	// ---- ATEM camera control (ATEM Software Control's Camera page, camera control panels) ----
+	// The ATEM sends every change as a "CCdP" command. Camera number = ATEM input = the Sony camera
+	// linked to that input. Parameters follow the Blackmagic camera control protocol.
+	atemConnected() {
+		// right after connecting the ATEM sends every value it has: don't apply those to the cameras
+		this.cc = { last: {}, readyAt: Date.now() + 2500 }
+	}
+
+	atemCameraControl(source, category, parameter, data) {
+		const key = `${source}.${category}.${parameter}`
+		const prev = this.cc.last[key]
+		this.cc.last[key] = data
+		if (Date.now() < this.cc.readyAt || !this.config.ccu.atemControl) return
+		if (prev && prev.length === data.length && prev.every((v, i) => v === data[i])) return
+		const cam = this.config.cameras.find((c) => c.input && c.input === source)
+		if (!cam) return
+		const p = this.props(cam.id)
+		if (!p) return
+		const id = cam.id
+		const n = data[0]
+		const cc = `${category}.${parameter}`
+		const ranged = (k, value) => { if (p[k] && p[k].w && typeof p[k].min === 'number') this.set(id, k, clamp(Math.round(value / (p[k].step || 1)) * (p[k].step || 1), p[k].min, p[k].max)) }
+		switch (cc) {
+			case '0.0': { // focus 0 (near) .. 1 (far): move by the change
+				const d = n - (prev ? prev[0] : n)
+				if (d) this.pulse(id, 'focus', Math.sign(d) * 3, Math.min(800, Math.abs(d) * 4000))
+				break
+			}
+			case '0.1': // instant auto focus
+				this.send({ cmd: 'af', id, on: 1 })
+				setTimeout(() => this.send({ cmd: 'af', id, on: 0 }), 800)
+				break
+			case '0.2': // aperture as f-stop (AV number)
+				if (p.iris && p.iris.w) this.set(id, 'iris', nearest(optionsOf(p.iris), Math.sqrt(2 ** n), irisF))
+				break
+			case '0.3': { // aperture 0 (closed) .. 1 (open)
+				if (!p.iris || !p.iris.w) break
+				const list = optionsOf(p.iris).filter((v) => irisF(v)).sort((a, b) => a - b)
+				if (list.length) this.set(id, 'iris', list[Math.round((1 - clamp(n, 0, 1)) * (list.length - 1))])
+				break
+			}
+			case '0.8': { // zoom 0 (wide) .. 1 (tele): move by the change
+				const d = n - (prev ? prev[0] : n)
+				if (d) this.pulse(id, 'zoom', Math.sign(d) * 3, Math.min(800, Math.abs(d) * 4000))
+				break
+			}
+			case '0.9': { // zoom speed -1 .. 1
+				const max = (p.zoomSpeed && p.zoomSpeed.max) || 1
+				this.send({ cmd: 'zoom', id, speed: Math.round(clamp(n, -1, 1) * max) })
+				break
+			}
+			case '1.1': // gain as a multiplier (older ATEMs): 1, 2, 4, 8, 16
+				this.gain(id, p, 6 * Math.log2(Math.max(1, n)))
+				break
+			case '1.13': // gain in dB
+				this.gain(id, p, n)
+				break
+			case '1.14': // ISO
+				if (p.iso && p.iso.w) this.set(id, 'iso', nearest(optionsOf(p.iso), n, isoValue))
+				break
+			case '1.2': { // white balance: Kelvin, tint
+				const kelvin = data[0], tint = data[1] || 0
+				const doKelvin = () => ranged('kelvin', kelvin)
+				if (p.wb && p.wb.w && p.wb.v !== 0x100 && optionsOf(p.wb).includes(0x100)) {
+					this.set(id, 'wb', 0x100)
+					setTimeout(() => { const q = this.props(id); if (q) ranged('kelvin', kelvin) }, 400)
+				} else doKelvin()
+				if (p.wbTint && p.wbTint.w) ranged('wbTint', (tint / 50) * p.wbTint.max)
+				else if (p.tintGM && p.tintGM.w) ranged('tintGM', 0xc0 + Math.round((tint / 50) * 36))
+				break
+			}
+			case '1.5': // exposure time in microseconds
+				if (p.shutter && p.shutter.w) this.set(id, 'shutter', nearest(optionsOf(p.shutter), n / 1e6, shutterSeconds))
+				break
+			case '1.12': // shutter speed 1/x
+				if (p.shutter && p.shutter.w && n > 0) this.set(id, 'shutter', nearest(optionsOf(p.shutter), 1 / n, shutterSeconds))
+				break
+			case '1.8': // shutter angle x100
+				if (p.angle && p.angle.w) this.set(id, 'angle', nearest(optionsOf(p.angle), n * 10, (v) => v))
+				break
+			case '1.16': // ND in stops
+				if (p.nd && p.nd.w) {
+					let best = null, bestD = Infinity
+					for (const v of optionsOf(p.nd)) {
+						const s = ndStops(v)
+						if (s >= 0 && Math.abs(s - n) < bestD) { bestD = Math.abs(s - n); best = v }
+					}
+					this.set(id, 'nd', best)
+				}
+				break
+			case '8.0': // lift: black level from the luma part
+				if (data.length >= 4) ranged('ppBlack', data[3] * (p.ppBlack ? p.ppBlack.max : 0) * 2)
+				break
+			case '8.4': // contrast: [pivot, adjust 0..2]
+				ranged('lookContrast', ((data[1] ?? 1) - 1) * (p.lookContrast ? p.lookContrast.max : 0))
+				break
+			case '8.6': { // [hue, saturation 0..2]
+				const sat = (data[1] ?? 1) - 1
+				if (p.lookSat && p.lookSat.w) ranged('lookSat', sat * p.lookSat.max)
+				else ranged('ppSat', sat * (p.ppSat ? p.ppSat.max : 0))
+				break
+			}
+			case '10.1': // transport: [mode, ...]; mode 2 = record
+				this.send({ cmd: 'rec', id, on: n === 2 ? 1 : 0 })
+				break
+		}
+	}
+
+	// ATEM gain (dB) to the camera's ISO: 0 dB = its lowest ISO, +6 dB = double
+	gain(id, p, dB) {
+		if (!p.iso || !p.iso.w) return
+		const list = optionsOf(p.iso).filter(isoValue)
+		if (!list.length) return
+		const base = Math.min(...list.map(isoValue))
+		this.set(id, 'iso', nearest(list, base * 2 ** (dB / 6), isoValue))
 	}
 
 	// what phones see (no passwords)
@@ -248,6 +577,10 @@ class Sony extends EventEmitter {
 			const live = this.live[c.id] || {}
 			return { id: c.id, name: c.name, model: c.model, ip: c.ip, input: c.input || 0, status: live.status || 'off', error: live.error || '', props: live.props || {} }
 		})
+	}
+
+	presets() {
+		return this.config.presets.map((p) => ({ name: p.name, from: p.from || '' }))
 	}
 
 	// what the PC window sees
@@ -259,4 +592,4 @@ class Sony extends EventEmitter {
 	}
 }
 
-module.exports = { Sony, MODELS }
+module.exports = { Sony, MODELS, optionsOf, stepOf }

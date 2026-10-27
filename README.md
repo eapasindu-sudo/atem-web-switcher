@@ -40,6 +40,26 @@ Camera setup (menu names from FX3/A7 IV):
 3. Access Authen. Settings **On**; the user name and password are in Access Authen. Info.
 4. On the PC window, Sony cameras, **Add camera** (or **Find cameras on the network**), enter the IP and password.
 
+Network cable: a USB-C to LAN adapter on the camera works too (camera menu: Network, Wired LAN). Plug it into the
+same router or switch as the PC and use the wired IP address. It is steadier than Wi-Fi.
+
+More on the CCU page:
+- **LIVE** picture from the selected camera, with timecode (tap it for full screen).
+- **LOOK** page: white balance, tint (A-B, G-M), Picture Profile, black level, saturation, Creative Look.
+- **PRESETS** page: save a camera's colour and exposure, recall it on one camera or all, and **Match all cameras**.
+- **Zoom** (power zoom lenses), **PUSH AF**, **REC ALL**, battery and recording time left.
+- **MIDI** knobs (Chrome or Edge on the PC): tap MIDI, tap a control, turn a knob.
+
+ATEM Software Control: its **Camera** page (and ATEM camera control panels) controls the Sony cameras, like
+Middle Control. CAM 1, CAM 2 … are ATEM inputs, so set each camera's ATEM input on the PC window. Iris, shutter,
+gain/ISO, white balance and tint, ND, focus, zoom, contrast, saturation and record are passed on. The PC window
+also has **Tally lamps on the cameras** and **Camera REC follows the ATEM's recording**.
+
+Stream Deck (Bitfocus Companion, Generic HTTP): GET `http://PC-IP:3000/api/sony/<cam>/<action>/<value>`, where
+`<cam>` is 1, 2, … or `all`. Examples: `/api/sony/1/rec/toggle`, `/api/sony/all/rec/start`, `/api/sony/2/iris/up`,
+`/api/sony/1/kelvin/3200`, `/api/sony/1/zoom/in`, `/api/sony/1/focus/near`, `/api/sony/1/af`, `/api/sony/1/preset/2`,
+`/api/sony/1/match`. `/api/sony` lists the cameras.
+
 Sony control uses the Sony Camera Remote SDK (runtime files in `sony\`). The SDK itself is not in this repository;
 to rebuild that part: `SONY_SDK=/path/to/RemoteCli build/sony-bridge/build-mingw.sh` before `build/build-windows.sh`.
 

@@ -13,6 +13,7 @@
 #include "CrDeviceProperty.h"
 #include "IDeviceCallback.h"
 #include "../crprop.h"
+#include "mock_jpeg.h"
 
 namespace SCRSDK {
 
@@ -102,6 +103,19 @@ static void fill()
     add<int8_t>(CrDeviceProperty_Focus_Speed_Range, CrDataType_Int8Range, 0, { 1, 7, 1 }, CrEnableValue_DisplayOnly);
     add<uint16_t>(CrDeviceProperty_RecordingState, CrDataType_UInt16Range, 0, {}, CrEnableValue_DisplayOnly);
     add<int16_t>(CrDeviceProperty_BatteryRemain, CrDataType_Int16Range, 78, { 0, 100, 1 }, CrEnableValue_DisplayOnly);
+    add<int8_t>(CrDeviceProperty_Zoom_Speed_Range, CrDataType_Int8Range, 0, { 1, 8, 1 }, CrEnableValue_DisplayOnly);
+    add<uint8_t>(CrDeviceProperty_Zoom_Operation_Status, CrDataType_UInt8Array, 1, { 0, 1 }, CrEnableValue_DisplayOnly);
+    add<uint8_t>(CrDeviceProperty_TallyLampControlRed, CrDataType_UInt8Array, 1, { 1, 2 });
+    add<uint8_t>(CrDeviceProperty_TallyLampControlGreen, CrDataType_UInt8Array, 1, { 1, 2 });
+    add<uint32_t>(CrDeviceProperty_MediaSLOT1_RemainingTime, CrDataType_UInt32Range, 7380, { 0, 0xFFFFFFFF, 1 }, CrEnableValue_DisplayOnly);
+    add<uint8_t>(CrDeviceProperty_PictureProfile, CrDataType_UInt8Array, 0, { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 });
+    add<int8_t>(CrDeviceProperty_PictureProfile_BlackLevel, CrDataType_Int8Range, 0, { -15, 15, 1 }, CrEnableValue_DisplayOnly);
+    add<int8_t>(CrDeviceProperty_PictureProfile_Saturation, CrDataType_Int8Range, 0, { -32, 32, 1 }, CrEnableValue_DisplayOnly);
+    add<uint16_t>(CrDeviceProperty_CreativeLook, CrDataType_UInt16Array, 1, { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 });
+    add<int8_t>(CrDeviceProperty_CreativeLook_Contrast, CrDataType_Int8Range, 0, { -9, 9, 1 });
+    add<int8_t>(CrDeviceProperty_CreativeLook_Saturation, CrDataType_Int8Range, 0, { -9, 9, 1 });
+    add<uint8_t>(CrDeviceProperty_ColorTuningAB, CrDataType_UInt8Range, 0xC0, { 0x9C, 0xE4, 1 });
+    add<uint8_t>(CrDeviceProperty_ColorTuningGM, CrDataType_UInt8Range, 0xC0, { 0x9C, 0xE4, 1 });
     add<uint16_t>(CrDeviceProperty_PriorityKeySettings, CrDataType_UInt16Array, CrPriorityKey_CameraPosition, { CrPriorityKey_CameraPosition, CrPriorityKey_PCRemote });
 }
 
@@ -190,12 +204,32 @@ CrError SetDeviceProperty(CrDeviceHandle, CrDeviceProperty* sp)
     const CrProp* p = asProps(sp);
     {
         std::lock_guard<std::mutex> lock(mx);
-        if (p->code == CrDeviceProperty_Focus_Operation) return CrError_None;
+        if (p->code == CrDeviceProperty_Focus_Operation || p->code == CrDeviceProperty_Zoom_Operation || p->code == CrDeviceProperty_PushAutoFocus) return CrError_None;
         auto it = store.find(p->code);
         if (it == store.end()) return CrError_Api_InvalidCalled;
         it->second.p.currentValue = p->currentValue;
     }
     later(150, &IDeviceCallback::OnPropertyChanged);
+    return CrError_None;
+}
+CrError GetLiveViewImageInfo(CrDeviceHandle, CrImageInfo* info)
+{
+    CrLiveViewInfo* i = reinterpret_cast<CrLiveViewInfo*>(info);
+    i->width = 480; i->height = 270; i->bufferSize = sizeof(MOCK_JPEG) + 64;
+    return CrError_None;
+}
+CrError GetLiveViewImage(CrDeviceHandle, CrImageDataBlock* block)
+{
+    CrLiveViewBlock* b = reinterpret_cast<CrLiveViewBlock*>(block);
+    static CrInt32u frame = 0;
+    if (b->size < sizeof(MOCK_JPEG) + 16) return CrError_Memory_Insufficient;
+    memset(b->pData, 0, 16); // a little header before the JPEG, like a real buffer might have
+    memcpy(b->pData + 16, MOCK_JPEG, sizeof(MOCK_JPEG));
+    b->imageSize = sizeof(MOCK_JPEG);
+    b->frameNo = ++frame;
+    auto bcd = [](CrInt32u n) { return ((n / 10) << 4) | (n % 10); };
+    CrInt32u f = frame % 25, sec = frame / 25;
+    b->timeCode = (bcd(1) << 24) | (bcd(sec / 60 % 60) << 16) | (bcd(sec % 60) << 8) | bcd(f); // HH:MM:SS:FF in BCD
     return CrError_None;
 }
 CrError SendCommand(CrDeviceHandle, CrInt32u id, CrCommandParam param)
