@@ -6,3 +6,4 @@ public/*.txt
 build/sony-bridge/sdk/
 build/sony-bridge/out/
 build/sony-bridge/mock/sony-bridge-mock
+package-lock.json
