@@ -34,7 +34,8 @@ jobs:
         run: |
           cp android-tally/app/build/outputs/apk/release/app-release.apk ATEM-Tally.apk
           gh release view tally-android >/dev/null 2>&1 || gh release create tally-android --title "ATEM Tally for DJI RC Pro / RC Pro 2" --notes "Install ATEM-Tally.apk on the DJI RC Pro or RC Pro 2. It draws a red (on air) or green (preview) border over DJI Fly, from the ATEM Switcher over Wi-Fi."
-          gh release upload tally-android ATEM-Tally.apk --clobber
+          echo "{\"versionCode\": ${TALLY_VERSION_CODE}}" > tally-version.json
+          gh release upload tally-android ATEM-Tally.apk tally-version.json --clobber
       - uses: actions/upload-artifact@v4
         with:
           name: ATEM-Tally

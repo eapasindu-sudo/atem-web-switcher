@@ -24,6 +24,7 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 
 /**
  * Keeps a live connection to the ATEM Switcher's tally stream (GET /api/tally/events) and draws the
@@ -128,29 +129,14 @@ public final class TallyService extends Service {
     // ---- connection ----
     private void loop(Object token) {
         while (current == token) {
-            String host = Prefs.get(this).getString(Prefs.HOST, "");
+            String host = Prefs.get(this).getString(Prefs.HOST, Prefs.DEFAULT_HOST);
             if (host.isEmpty()) {
                 sleep(1000);
                 continue;
             }
-            try {
-                HttpURLConnection c = (HttpURLConnection) new URL(Prefs.baseUrl(host) + "/api/tally/events").openConnection();
-                conn = c;
-                c.setConnectTimeout(3000);
-                c.setReadTimeout(12000); // the switcher sends a ping every 5 s
-                c.setRequestProperty("Accept", "text/event-stream");
-                BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8));
-                String line;
-                while (current == token && (line = r.readLine()) != null) {
-                    if (!line.startsWith("data:")) continue;
-                    onTally(new JSONObject(line.substring(5).trim()));
-                }
-            } catch (Exception ignored) {
-            } finally {
-                HttpURLConnection c = conn;
-                if (c != null) c.disconnect();
-                conn = null;
-            }
+            // the ATEM Switcher PC (port 3000) gives names and works through Playout; else talk to the ATEM itself
+            if (host.contains(":") || switcherAnswers(host)) followSwitcher(token, host);
+            else followAtem(token, host);
             if (current != token) return;
             if (connected) {
                 connected = false;
@@ -158,6 +144,64 @@ public final class TallyService extends Service {
             }
             sleep(1000);
         }
+    }
+
+    private static boolean switcherAnswers(String host) {
+        try {
+            HttpURLConnection c = (HttpURLConnection) new URL(Prefs.baseUrl(host) + "/api/tally").openConnection();
+            c.setConnectTimeout(1500);
+            c.setReadTimeout(1500);
+            boolean ok = c.getResponseCode() == 200;
+            c.disconnect();
+            return ok;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void followSwitcher(Object token, String host) {
+        try {
+            HttpURLConnection c = (HttpURLConnection) new URL(Prefs.baseUrl(host) + "/api/tally/events").openConnection();
+            conn = c;
+            c.setConnectTimeout(3000);
+            c.setReadTimeout(12000); // the switcher sends a ping every 5 s
+            c.setRequestProperty("Accept", "text/event-stream");
+            BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8));
+            String line;
+            while (current == token && (line = r.readLine()) != null) {
+                if (!line.startsWith("data:")) continue;
+                onTally(new JSONObject(line.substring(5).trim()));
+            }
+        } catch (Exception ignored) {
+        } finally {
+            HttpURLConnection c = conn;
+            if (c != null) c.disconnect();
+            conn = null;
+        }
+    }
+
+    private void followAtem(Object token, String host) {
+        new AtemClient(host, (ok, pgm, pvw, trans, names) -> {
+            if (current != token) return;
+            try {
+                JSONObject t = new JSONObject();
+                t.put("connected", ok);
+                t.put("program", pgm);
+                t.put("preview", pvw);
+                t.put("inTransition", trans);
+                org.json.JSONArray sources = new org.json.JSONArray();
+                for (Map.Entry<Integer, String> e : names.entrySet()) {
+                    sources.put(new JSONObject().put("id", e.getKey()).put("label", e.getValue()));
+                }
+                t.put("sources", sources);
+                if (ok) onTally(t);
+                else if (connected) {
+                    connected = false;
+                    redraw();
+                }
+            } catch (Exception ignored) {
+            }
+        }).connectOnce(() -> current == token);
     }
 
     private void onTally(JSONObject t) {
@@ -176,6 +220,11 @@ public final class TallyService extends Service {
             }
         }
         inputName = name;
+        // the settings screen lists the inputs by these names
+        if (sources != null && sources.length() > 0) {
+            String json = sources.toString();
+            if (!json.equals(Prefs.get(this).getString(Prefs.SOURCES, ""))) Prefs.get(this).edit().putString(Prefs.SOURCES, json).apply();
+        }
         redraw();
     }
 
@@ -198,7 +247,7 @@ public final class TallyService extends Service {
             float density = getResources().getDisplayMetrics().density;
             int width = Math.round(p.getInt(Prefs.WIDTH, 6) * density);
             if (border != null) border.show(color, width, label, !connected || !atem);
-            String status = !connected ? "Looking for ATEM Switcher at " + p.getString(Prefs.HOST, "")
+            String status = !connected ? "Looking for the ATEM at " + p.getString(Prefs.HOST, Prefs.DEFAULT_HOST)
                     : !atem ? "ATEM Switcher has no ATEM connected"
                     : inputName + (onAir ? ": ON AIR" : onPreview ? ": PREVIEW" : ": not on air");
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);

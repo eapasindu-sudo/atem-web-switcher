@@ -57,7 +57,9 @@ also has **Tally lamps on the cameras** and **Camera REC follows the ATEM's reco
 
 Drone tally (DJI RC Pro / RC Pro 2): install
 [ATEM-Tally.apk](https://github.com/eapasindu-sudo/atem-web-switcher/releases/download/tally-android/ATEM-Tally.apk)
-on the controller, put it on the same Wi-Fi, tap **Find**, pick the drone's ATEM input and **Start tally**. A red
+on the controller, put it on the same Wi-Fi, tap **Find** (or type the ATEM's IP; it talks to the ATEM directly,
+no PC needed, or to this switcher's PC), pick the drone's ATEM input and **Start tally**. The app shows
+**Update available** when a newer build is out; the download link stays the same. A red
 (on air) or green (preview) border is drawn over DJI Fly. The app's source is in `android-tally/`; GitHub builds it.
 DJI RC 2 / DJI RC can't install apps: open `http://PC-IP:3000/tally` on a phone or tablet beside it instead.
 Other tally lights can read `GET /api/tally` (JSON) or `/api/tally/events` (live stream).

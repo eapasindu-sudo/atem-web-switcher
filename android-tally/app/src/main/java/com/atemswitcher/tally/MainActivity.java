@@ -55,6 +55,10 @@ public final class MainActivity extends Activity {
     private TextView status, widthLabel;
     private Button allow, find, start;
     private final List<Integer> inputIds = new ArrayList<>();
+    private Button update;
+    // the newest APK is always at the same link; tally-version.json next to it says which build it is
+    static final String RELEASE = "https://github.com/eapasindu-sudo/atem-web-switcher/releases/download/tally-android/";
+    static final String APK_URL = RELEASE + "ATEM-Tally.apk";
 
     @Override
     protected void onCreate(Bundle b) {
@@ -74,20 +78,24 @@ public final class MainActivity extends Activity {
         TextView title = text("ATEM Tally", 24);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         col.addView(title);
+        update = new Button(this);
+        update.setVisibility(View.GONE);
+        update.setOnClickListener(v -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(APK_URL))));
+        col.addView(update);
         status = text("", 15);
         status.setPadding(0, Math.round(4 * d), 0, Math.round(12 * d));
         col.addView(status);
 
         // 1. where the ATEM Switcher runs
-        col.addView(label("ATEM Switcher PC (same Wi-Fi as this controller)"));
+        col.addView(label("ATEM IP address (or the ATEM Switcher PC), on the same Wi-Fi as this controller"));
         LinearLayout row = new LinearLayout(this);
         host = new EditText(this);
-        host.setHint("PC IP address, e.g. 192.168.1.20");
+        host.setHint("ATEM IP, e.g. " + Prefs.DEFAULT_HOST);
         host.setTextColor(Color.WHITE);
         host.setHintTextColor(Color.GRAY);
         host.setSingleLine(true);
         host.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-        host.setText(prefs.getString(Prefs.HOST, ""));
+        host.setText(prefs.getString(Prefs.HOST, Prefs.DEFAULT_HOST));
         host.setOnFocusChangeListener((v, has) -> {
             if (!has) saveHost();
         });
@@ -162,13 +170,33 @@ public final class MainActivity extends Activity {
         help.setPadding(0, Math.round(12 * d), 0, 0);
         col.addView(help);
 
-        if (!prefs.getString(Prefs.HOST, "").isEmpty()) loadInputs();
+        if (!prefs.getString(Prefs.HOST, Prefs.DEFAULT_HOST).isEmpty()) loadInputs();
+        checkUpdate();
+    }
+
+    /** shows "Update available" when GitHub has a newer build than this one */
+    private void checkUpdate() {
+        new Thread(() -> {
+            try {
+                int latest = new JSONObject(get(RELEASE + "tally-version.json", 8000)).getInt("versionCode");
+                long mine = Build.VERSION.SDK_INT >= 28
+                        ? getPackageManager().getPackageInfo(getPackageName(), 0).getLongVersionCode()
+                        : getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
+                if (latest > mine) main.post(() -> {
+                    update.setText("Update available (1.0." + latest + "): tap to download, then install it");
+                    update.setVisibility(View.VISIBLE);
+                });
+            } catch (Exception ignored) {
+                // no internet: nothing to show
+            }
+        }).start();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         refresh();
+        if (inputIds.size() == 8 && !prefs.getString(Prefs.SOURCES, "").isEmpty()) savedInputs();
     }
 
     @Override
@@ -222,13 +250,13 @@ public final class MainActivity extends Activity {
         start.setEnabled(ok);
         start.setText(running() ? "Stop tally" : "Start tally");
         if (!ok) status.setText("Step 1: allow \"Display over other apps\" so the border can show over DJI Fly.");
-        else if (prefs.getString(Prefs.HOST, "").isEmpty()) status.setText("Enter the ATEM Switcher PC's IP address, or tap Find.");
+        else if (prefs.getString(Prefs.HOST, Prefs.DEFAULT_HOST).isEmpty()) status.setText("Enter the ATEM's IP address, or tap Find.");
         else status.setText(running() ? "Tally is on. Open DJI Fly." : "Ready. Tap Start tally.");
     }
 
     private void saveHost() {
         String h = host.getText().toString().trim();
-        if (h.equals(prefs.getString(Prefs.HOST, ""))) return;
+        if (h.equals(prefs.getString(Prefs.HOST, Prefs.DEFAULT_HOST))) return;
         prefs.edit().putString(Prefs.HOST, h).apply();
         if (!h.isEmpty()) loadInputs();
         restartIfRunning();
@@ -284,15 +312,23 @@ public final class MainActivity extends Activity {
 
     /** fills the input list with the ATEM's own names (CAM 1, DRONE …) */
     private void loadInputs() {
-        String base = Prefs.baseUrl(prefs.getString(Prefs.HOST, ""));
+        String base = Prefs.baseUrl(prefs.getString(Prefs.HOST, Prefs.DEFAULT_HOST));
         new Thread(() -> {
             try {
                 JSONArray sources = new JSONObject(get(base + "/api/tally", 3000)).getJSONArray("sources");
                 main.post(() -> setInputs(sources));
             } catch (Exception e) {
-                main.post(() -> status.setText("Can't reach the ATEM Switcher at " + base + ". Check the IP and that this controller is on the same Wi-Fi."));
+                // not an ATEM Switcher PC: the tally talks to the ATEM itself and saves its input names
+                main.post(this::savedInputs);
             }
         }).start();
+    }
+
+    private void savedInputs() {
+        try {
+            setInputs(new JSONArray(prefs.getString(Prefs.SOURCES, "[]")));
+        } catch (Exception ignored) {
+        }
     }
 
     private void setInputs(JSONArray sources) {
@@ -330,9 +366,10 @@ public final class MainActivity extends Activity {
     /** tries every address on this Wi-Fi (x.x.x.1-254) for an ATEM Switcher on port 3000 */
     private void findSwitcher() {
         find.setEnabled(false);
-        status.setText("Looking for the ATEM Switcher on this Wi-Fi…");
+        status.setText("Looking for the ATEM on this Wi-Fi…");
         new Thread(() -> {
             AtomicReference<String> found = new AtomicReference<>();
+            AtomicReference<String> atem = new AtomicReference<>();
             ExecutorService pool = Executors.newFixedThreadPool(48);
             try {
                 for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
@@ -344,9 +381,10 @@ public final class MainActivity extends Activity {
                         for (int i = 1; i < 255; i++) {
                             String h = prefix + i;
                             pool.execute(() -> {
-                                if (found.get() != null) return;
+                                if (atem.get() != null) return;
                                 try {
-                                    if (get("http://" + h + ":3000/api/tally", 700).contains("\"sources\"")) found.compareAndSet(null, h);
+                                    if (AtemClient.probe(InetAddress.getByName(h), 800)) atem.compareAndSet(null, h);
+                                    else if (get("http://" + h + ":3000/api/tally", 700).contains("\"sources\"")) found.compareAndSet(null, h);
                                 } catch (Exception ignored) {
                                 }
                             });
@@ -362,14 +400,14 @@ public final class MainActivity extends Activity {
             }
             main.post(() -> {
                 find.setEnabled(true);
-                String h = found.get();
+                String h = atem.get() != null ? atem.get() : found.get();
                 if (h == null) {
-                    status.setText("No ATEM Switcher found. Is ATEM Switcher running on the PC, on the same Wi-Fi? You can also type the IP shown in its window.");
+                    status.setText("No ATEM found on this Wi-Fi. Is the ATEM plugged into the same router with a network cable? You can also type its IP.");
                     return;
                 }
                 host.setText(h);
                 saveHost();
-                status.setText("Found the ATEM Switcher at " + h + ". Pick the drone's ATEM input, then Start tally.");
+                status.setText((atem.get() != null ? "Found the ATEM at " : "Found the ATEM Switcher at ") + h + ". Pick the drone's ATEM input, then Start tally.");
             });
         }).start();
     }

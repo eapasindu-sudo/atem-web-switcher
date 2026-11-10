@@ -11,6 +11,9 @@ final class Prefs {
     static final String PREVIEW = "preview";
     static final String LABEL = "label";
     static final String RUNNING = "running";
+    static final String SOURCES = "sources";
+    /** the studio's ATEM: the tally talks to it directly when no ATEM Switcher PC is given */
+    static final String DEFAULT_HOST = "192.168.1.125";
 
     static SharedPreferences get(Context c) {
         return c.getSharedPreferences("tally", Context.MODE_PRIVATE);
