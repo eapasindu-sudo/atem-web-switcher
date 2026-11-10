@@ -74,6 +74,55 @@ function saveConfig(cfg) {
 	}
 }
 
+// why the ATEM may not answer, once we have been looking for a few seconds
+function ipNum(ip) {
+	return ip.split('.').reduce((n, x) => n * 256 + Number(x), 0)
+}
+function atemHint() {
+	if (!atemIp || connected || Date.now() - atemSince < 6000) return null
+	if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(atemIp)) return { kind: 'badip' }
+	const mine = []
+	for (const addrs of Object.values(os.networkInterfaces())) {
+		for (const n of addrs || []) {
+			if (n.family !== 'IPv4' || n.internal || n.address.startsWith('169.254.')) continue
+			mine.push(n.address)
+			const mask = ipNum(n.netmask)
+			if ((ipNum(n.address) & mask) >>> 0 === (ipNum(atemIp) & mask) >>> 0) return { kind: 'noanswer', pc: n.address }
+		}
+	}
+	return { kind: 'othernet', pc: mine }
+}
+
+// "Find ATEM": every ATEM answers a hello on UDP 9910; try each address on this PC's networks
+let atemScan = { state: 'idle', found: [] }
+function scanForAtem() {
+	if (atemScan.state === 'scanning') return
+	const dgram = require('dgram')
+	const sock = dgram.createSocket('udp4')
+	const found = new Set()
+	atemScan = { state: 'scanning', found: [] }
+	broadcastAdmin().catch(() => {})
+	// the ATEM protocol's "hello" packet
+	const hello = Buffer.from([0x10, 0x14, 0x53, 0xab, 0, 0, 0, 0, 0, 0x3a, 0, 0, 0x01, 0, 0, 0, 0, 0, 0, 0])
+	sock.on('message', (msg, rinfo) => found.add(rinfo.address))
+	sock.on('error', () => {})
+	sock.bind(0, () => {
+		const targets = new Set()
+		for (const a of lanAddresses()) {
+			if (a.address === '127.0.0.1') continue
+			const base = a.address.split('.').slice(0, 3).join('.')
+			for (let i = 1; i < 255; i++) targets.add(`${base}.${i}`)
+		}
+		let i = 0
+		for (const t of targets) setTimeout(() => sock.send(hello, 9910, t, () => {}), Math.floor(i++ / 50) * 20)
+		setTimeout(() => {
+			try { sock.close() } catch {}
+			atemScan = { state: 'done', found: [...found].sort((x, y) => ipNum(x) - ipNum(y)) }
+			broadcastAdmin().catch(() => {})
+		}, 2500)
+	})
+}
+
 function lanAddresses() {
 	const list = []
 	for (const [name, addrs] of Object.entries(os.networkInterfaces())) {
@@ -102,6 +151,7 @@ sony.on('lv', (id, jpg, tc) => {
 })
 let atem = null
 let atemIp = null
+let atemSince = 0 // when we started looking for the ATEM at atemIp
 let connected = false
 
 const app = express()
@@ -211,6 +261,7 @@ function snapshot() {
 		position: me ? me.transitionPosition.handlePosition : 0,
 		sources,
 		extras: connected && state ? extras(state, me) : null,
+		hint: atemHint(),
 	}
 }
 
@@ -380,6 +431,7 @@ async function adminInfo() {
 		update,
 		canUpdate: IS_EXE && process.platform === 'win32' && !EMBEDDED,
 		embedded: EMBEDDED,
+		atemScan,
 		sony: { available: sony.available, problem: sony.problem || null, cams: sony.adminCams(), scan: sony.scan, models: SONY_MODELS, ccu: config.ccu },
 	}
 }
@@ -422,6 +474,8 @@ async function connectAtem(ip) {
 	}
 	connected = false
 	atemIp = ip
+	atemSince = Date.now()
+	setTimeout(broadcast, 6500) // shows the "can't find it" help if it is still not connected
 	config.ip = ip
 	saveConfig(config)
 	if (!ip) return broadcast()
@@ -479,6 +533,7 @@ async function handleCommand(ws, msg) {
 		return broadcastAdmin()
 	}
 	if (msg.cmd === 'connect') return connectAtem(String(msg.ip || '').trim())
+	if (msg.cmd === 'atemScan' && client.role === 'admin') return scanForAtem()
 	if (msg.cmd === 'inputs') {
 		const v = msg.value === 'auto' ? 'auto' : Math.max(MIN_INPUTS, Math.min(MAX_INPUTS, Number(msg.value) || MAX_INPUTS))
 		config.inputs = v
@@ -608,8 +663,15 @@ async function installUpdate() {
 		setUpdate({ ...update, state: 'installing' })
 		console.log('Running installer', file)
 		// silent install; the installer closes this app, replaces it and starts the new version
-		const { spawn } = require('child_process')
-		spawn(file, ['/S'], { detached: true, stdio: 'ignore' }).unref()
+		// the installer needs admin rights: a plain spawn fails on that (and took the app down), so ask
+		// Windows to run it elevated; that shows the usual "Do you want to allow…" prompt on this PC
+		const { execFile } = require('child_process')
+		const cmd = `Start-Process -FilePath '${file.replace(/'/g, "''")}' -ArgumentList '/S' -Verb RunAs`
+		execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', cmd], { windowsHide: true }, (err) => {
+			if (!err) return
+			console.error('Installer did not start:', err.message)
+			setUpdate({ ...update, state: 'available', message: 'Windows did not start the update. Click Install update again and choose Yes when Windows asks.' })
+		})
 	} catch (e) {
 		console.error('Update download failed:', e.message)
 		setUpdate({ ...update, state: 'available', message: 'Download failed. Check the internet and try again.' })

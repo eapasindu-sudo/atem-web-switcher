@@ -40,11 +40,54 @@
     } else if (s.ip) {
       dot = 'wait'; status = 'Connecting…'; model = 'Looking for the ATEM at ' + s.ip + '. Check the IP and the network cable.'
     }
+    renderHint(s.hint)
     $('atemDot').className = 'dot ' + dot
     $('atemStatus').textContent = status
     $('atemModel').textContent = model
     $('pgm').textContent = s.connected && s.program != null ? s.program : '–'
     $('pvw').textContent = s.connected && s.preview != null ? s.preview : '–'
+  }
+
+  // why the ATEM is not connecting (from the PC side), in plain words
+  function renderHint(h) {
+    const box = $('atemHint')
+    box.hidden = !h
+    if (!h) return
+    if (h.kind === 'badip') box.innerHTML = 'That IP address is not valid. Use 4 numbers like 192.168.1.240.'
+    else if (h.kind === 'othernet') {
+      box.innerHTML = '<b>The ATEM is on a different network from this PC.</b> This PC is <span></span>. The ATEM\'s first three numbers must be the same as the PC\'s. ' +
+        'Connect the ATEM to the PC with USB, open <b>ATEM Setup</b>, and on Network choose <b>DHCP</b> (or type an IP like the PC\'s, for example <span></span>). Then click <b>Find ATEM</b>.'
+      const pc = h.pc && h.pc[0]
+      box.querySelectorAll('span')[0].textContent = (h.pc || []).join(', ') || 'not on a network'
+      box.querySelectorAll('span')[1].textContent = pc ? pc.split('.').slice(0, 3).join('.') + '.240' : '192.168.1.240'
+    } else {
+      box.innerHTML = '<b>The ATEM is not answering.</b> Check: the ATEM is plugged into the router or switch with a <b>network cable</b> (the ATEM has no Wi-Fi); ' +
+        'the IP is right (click <b>Find ATEM</b>); the PC is on that router\'s Wi-Fi (not a guest Wi-Fi); and the router does not have <b>AP / client isolation</b> turned on.'
+    }
+  }
+
+  function renderScan(sc) {
+    const box = $('atemFound')
+    $('atemFind').disabled = sc.state === 'scanning'
+    $('atemFind').textContent = sc.state === 'scanning' ? 'Looking for ATEMs…' : 'Find ATEM on the network'
+    box.innerHTML = ''
+    if (sc.state !== 'done') return
+    if (!sc.found.length) {
+      box.innerHTML = '<p class="muted small">No ATEM answered on this network. Is its network cable plugged into the same router as this PC? If the ATEM has a fixed IP from another network, set it to DHCP in ATEM Setup (USB).</p>'
+      return
+    }
+    for (const ip of sc.found) {
+      const row = document.createElement('div')
+      row.innerHTML = '<span></span><button>Connect</button>'
+      row.firstChild.textContent = 'ATEM at ' + ip
+      row.lastChild.addEventListener('click', () => {
+        $('ipInput').value = ip
+        delete $('ipInput').dataset.touched
+        send({ cmd: 'connect', ip })
+        box.innerHTML = ''
+      })
+      box.appendChild(row)
+    }
   }
 
   function since(ts) {
@@ -93,6 +136,7 @@
       : `Phones show inputs 1 to ${a.inputsSetting}.`
 
     renderUpdate(a)
+    renderScan(a.atemScan || { state: 'idle', found: [] })
     renderSony(a.sony, a)
   }
 
@@ -223,6 +267,7 @@
 
   setInterval(() => lastAdmin && renderAdmin(lastAdmin), 30000)
 
+  $('atemFind').addEventListener('click', () => send({ cmd: 'atemScan' }))
   $('ipInput').addEventListener('input', (e) => { e.target.dataset.touched = '1'; $('ipError').hidden = true })
   $('ipForm').addEventListener('submit', (e) => {
     e.preventDefault()
