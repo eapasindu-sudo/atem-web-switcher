@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Tally</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #111; color: #fff; font-family: -apple-system, system-ui, Segoe UI, Roboto, sans-serif; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; transition: background .08s; user-select: none; }
+  body.pgm { background: #e00000; }
+  body.pvw { background: #00a83a; }
+  body.off { background: #3a2c10; }
+  #name { font-size: min(22vw, 30vh); font-weight: 900; letter-spacing: 2px; line-height: 1; }
+  #state { font-size: min(7vw, 9vh); font-weight: 800; letter-spacing: 4px; opacity: .85; }
+  #pick { position: fixed; top: 10px; right: 10px; display: flex; gap: 6px; }
+  select, button { font-size: 16px; padding: 8px 10px; border-radius: 8px; border: 0; background: rgba(0,0,0,.45); color: #fff; }
+  #hint { position: fixed; bottom: 10px; font-size: 12px; opacity: .6; text-align: center; padding: 0 16px; }
+</style>
+</head>
+<body>
+<div id="pick"><select id="input"></select><button id="full">⛶</button></div>
+<div id="name">--</div>
+<div id="state">CONNECTING</div>
+<div id="hint">Red = on air (PROGRAM), green = PREVIEW. Pick the ATEM input this screen belongs to.</div>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id)
+  const q = new URLSearchParams(location.search)
+  let input = Number(q.get('input')) || 0
+  try { if (!input) input = Number(localStorage.getItem('tallyInput')) || 1 } catch { input = input || 1 }
+  let t = null
+
+  function render() {
+    const sel = $('input')
+    const sources = (t && t.sources) || Array.from({ length: 8 }, (_, i) => ({ id: i + 1, label: 'CAM ' + (i + 1) }))
+    if (sel.options.length !== sources.length || [...sel.options].some((o, i) => o.text !== sources[i].id + ' ' + sources[i].label)) {
+      sel.innerHTML = ''
+      for (const s of sources) sel.add(new Option(s.id + ' ' + s.label, s.id))
+    }
+    sel.value = String(input)
+    const src = sources.find((s) => s.id === input)
+    $('name').textContent = src ? src.label : 'IN ' + input
+    let cls = '', state = ''
+    if (!t) { cls = 'off'; state = 'CONNECTING' }
+    else if (!t.connected) { cls = 'off'; state = 'NO ATEM' }
+    else if (t.program === input || (t.inTransition && t.preview === input)) { cls = 'pgm'; state = 'ON AIR' }
+    else if (t.preview === input) { cls = 'pvw'; state = 'PREVIEW' }
+    document.body.className = cls
+    $('state').textContent = state
+  }
+
+  $('input').addEventListener('change', (e) => {
+    input = Number(e.target.value)
+    try { localStorage.setItem('tallyInput', input) } catch {}
+    render()
+  })
+  $('full').addEventListener('click', () => document.documentElement.requestFullscreen && document.documentElement.requestFullscreen().catch(() => {}))
+
+  function connect() {
+    const es = new EventSource('/api/tally/events')
+    es.onmessage = (e) => { t = JSON.parse(e.data); render() }
+    es.onerror = () => { t = null; render() } // EventSource reconnects by itself
+  }
+  // keep the screen on
+  async function wake() { try { await navigator.wakeLock.request('screen') } catch {} }
+  document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && wake())
+  wake()
+  render()
+  connect()
+})()
+</script>
+</body>
+</html>

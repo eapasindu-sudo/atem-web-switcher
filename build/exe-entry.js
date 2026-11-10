@@ -5,6 +5,7 @@ global.EMBEDDED_PUBLIC = {
   '/ccu.js': require('../public/ccu.js.txt'),
   '/more.js': require('../public/more.js.txt'),
   '/admin.html': require('../public/admin.html'),
+  '/tally.html': require('../public/tally.html'),
   '/admin.css': require('../public/admin.css'),
   '/admin.js': require('../public/admin.js.txt'),
   '/manifest.json': require('../public/manifest.json.txt'),

@@ -120,6 +120,7 @@
     $('optRecWithAtem').checked = !!ccu.recWithAtem
     const lan = admin && admin.urls && admin.urls[0]
     $('apiBase').textContent = lan ? lan.url.replace(/\/$/, '') : 'http://localhost:' + ((admin && admin.port) || 3000)
+    $('tallyUrl').textContent = $('apiBase').textContent + '/tally'
     const list = $('camList')
     list.innerHTML = ''
     const modelName = (m) => (info.models.find((x) => x[0] === m) || [m, m])[1]

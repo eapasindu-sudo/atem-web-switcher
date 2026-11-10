@@ -1,0 +1,49 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.atemswitcher.tally'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.atemswitcher.tally'
+        // DJI RC Pro runs Android 10, RC Pro 2 a newer one
+        minSdk 24
+        targetSdk 33
+        versionCode((System.getenv('TALLY_VERSION_CODE') ?: '1') as int)
+        versionName '1.0.' + (System.getenv('TALLY_VERSION_CODE') ?: '1')
+    }
+
+    signingConfigs {
+        // a fixed debug key in the repo, so each new APK installs over the old one
+        debug {
+            storeFile file('../debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+        release {
+            // CI writes the keystore from a repository secret; local builds fall back to the debug key
+            def ks = file('../tally-release.jks')
+            if (ks.exists()) {
+                storeFile ks
+                storePassword System.getenv('TALLY_KEY_PASSWORD')
+                keyAlias 'tally'
+                keyPassword System.getenv('TALLY_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig file('../tally-release.jks').exists() ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

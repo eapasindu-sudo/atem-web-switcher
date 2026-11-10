@@ -118,6 +118,41 @@ if (global.EMBEDDED_PUBLIC) {
 	app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')))
 	app.use(express.static(path.join(__dirname, 'public')))
 }
+// ---- Tally for other screens (drone controller app, /tally page, tally lights) ----
+// GET /api/tally -> { connected, program, preview, inTransition, sources }
+// GET /api/tally/events -> the same as a live stream (Server-Sent Events), one line per change
+function tallyInfo() {
+	const st = snapshot()
+	return { connected: st.connected, program: st.program, preview: st.preview, inTransition: st.inTransition, sources: st.sources.map((x) => ({ id: x.id, label: x.label })) }
+}
+const tallyStreams = new Set()
+let lastTally = ''
+function sendTally() {
+	const t = tallyInfo()
+	const key = `${t.connected}|${t.program}|${t.preview}|${t.inTransition}|${t.sources.map((x) => x.label).join(',')}`
+	if (key === lastTally) return
+	lastTally = key
+	const line = `data: ${JSON.stringify(t)}\n\n`
+	for (const res of tallyStreams) res.write(line)
+}
+app.get('/api/tally', (req, res) => res.set('Access-Control-Allow-Origin', '*').json(tallyInfo()))
+app.get('/api/tally/events', (req, res) => {
+	res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'Access-Control-Allow-Origin': '*' })
+	res.flushHeaders()
+	res.write(`data: ${JSON.stringify(tallyInfo())}\n\n`)
+	tallyStreams.add(res)
+	// a comment line now and then shows a dead connection quickly on both ends
+	const ping = setInterval(() => res.write(': ping\n\n'), 5000)
+	req.on('close', () => {
+		clearInterval(ping)
+		tallyStreams.delete(res)
+	})
+})
+app.get('/tally', (req, res, next) => {
+	if (global.EMBEDDED_PUBLIC) return res.type('html').send(global.EMBEDDED_PUBLIC['/tally.html'])
+	res.sendFile(path.join(__dirname, 'public', 'tally.html'))
+})
+
 // Stream Deck (Bitfocus Companion "Generic HTTP"): GET /api/sony/1/rec/toggle, /api/sony/all/iris/up ...
 app.get('/api/sony', (req, res) => res.json(sony.cams().map((c, i) => ({ n: i + 1, name: c.name, input: c.input, status: c.status, rec: !!(c.props.rec && c.props.rec.v === 1) }))))
 app.get('/api/sony/:cam/:action/:value?', (req, res) => {
@@ -350,6 +385,7 @@ async function adminInfo() {
 }
 
 function broadcast() {
+	sendTally()
 	const msg = JSON.stringify(snapshot())
 	for (const client of wss.clients) {
 		if (client.readyState === 1) client.send(msg)

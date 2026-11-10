@@ -116,6 +116,15 @@
         </ol>
       </details>
       <details class="small muted">
+        <summary>Drone tally: red / green border on the DJI controller</summary>
+        <ol>
+          <li>On a DJI RC Pro or RC Pro 2, download and install <a href="https://github.com/eapasindu-sudo/atem-web-switcher/releases/download/tally-android/ATEM-Tally.apk" target="_blank">ATEM-Tally.apk</a> (allow installing from this source when asked).</li>
+          <li>Connect the controller to the same Wi-Fi as this PC. Open ATEM Tally, tap <b>Find</b> (or type this PC's IP), pick the ATEM input the drone is plugged into.</li>
+          <li>Tap <b>Allow "Display over other apps"</b>, then <b>Start tally</b>, then open DJI Fly. A red border means on air, green means preview.</li>
+          <li>DJI RC 2 and DJI RC can't install apps. Use a phone or tablet beside it instead: open <code>/tally</code> on this switcher (for example <code id="tallyUrl">http://this-pc:3000/tally</code>) and pick the input. The whole screen goes red or green.</li>
+        </ol>
+      </details>
+      <details class="small muted">
         <summary>Stream Deck (Bitfocus Companion) and MIDI knobs</summary>
         <ol>
           <li>In Companion add the <b>Generic: HTTP Requests</b> connection, then make buttons with a GET request to these addresses:</li>

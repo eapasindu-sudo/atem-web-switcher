@@ -55,6 +55,13 @@ Middle Control. CAM 1, CAM 2 … are ATEM inputs, so set each camera's ATEM inpu
 gain/ISO, white balance and tint, ND, focus, zoom, contrast, saturation and record are passed on. The PC window
 also has **Tally lamps on the cameras** and **Camera REC follows the ATEM's recording**.
 
+Drone tally (DJI RC Pro / RC Pro 2): install
+[ATEM-Tally.apk](https://github.com/eapasindu-sudo/atem-web-switcher/releases/download/tally-android/ATEM-Tally.apk)
+on the controller, put it on the same Wi-Fi, tap **Find**, pick the drone's ATEM input and **Start tally**. A red
+(on air) or green (preview) border is drawn over DJI Fly. The app's source is in `android-tally/`; GitHub builds it.
+DJI RC 2 / DJI RC can't install apps: open `http://PC-IP:3000/tally` on a phone or tablet beside it instead.
+Other tally lights can read `GET /api/tally` (JSON) or `/api/tally/events` (live stream).
+
 Stream Deck (Bitfocus Companion, Generic HTTP): GET `http://PC-IP:3000/api/sony/<cam>/<action>/<value>`, where
 `<cam>` is 1, 2, … or `all`. Examples: `/api/sony/1/rec/toggle`, `/api/sony/all/rec/start`, `/api/sony/2/iris/up`,
 `/api/sony/1/kelvin/3200`, `/api/sony/1/zoom/in`, `/api/sony/1/focus/near`, `/api/sony/1/af`, `/api/sony/1/preset/2`,

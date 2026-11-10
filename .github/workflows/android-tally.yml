@@ -1,0 +1,41 @@
+name: Build ATEM Tally (Android)
+on:
+  push:
+    branches: [main]
+    paths: ['android-tally/**', '.github/workflows/android-tally.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      TALLY_VERSION_CODE: ${{ github.run_number }}
+      TALLY_KEY_PASSWORD: ${{ secrets.TALLY_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Signing key
+        if: ${{ env.TALLY_KEY_PASSWORD != '' }}
+        run: echo "${{ secrets.TALLY_KEYSTORE }}" | base64 -d > android-tally/tally-release.jks
+      - name: Build
+        run: gradle -p android-tally assembleRelease --no-daemon
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android-tally/app/build/outputs/apk/release/app-release.apk ATEM-Tally.apk
+          gh release view tally-android >/dev/null 2>&1 || gh release create tally-android --title "ATEM Tally for DJI RC Pro / RC Pro 2" --notes "Install ATEM-Tally.apk on the DJI RC Pro or RC Pro 2. It draws a red (on air) or green (preview) border over DJI Fly, from the ATEM Switcher over Wi-Fi."
+          gh release upload tally-android ATEM-Tally.apk --clobber
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ATEM-Tally
+          path: ATEM-Tally.apk
