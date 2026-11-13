@@ -1,5 +1,5 @@
 {
-  "version": "1.6.1",
+  "version": "1.6.2",
   "url": "https://github.com/eapasindu-sudo/atem-web-switcher/raw/main/download/ATEM-Switcher-Setup.exe",
-  "notes": "Install update works again (asks Windows for permission). ATEM: Find ATEM on the network, and clear help when the ATEM is on another network or not answering."
+  "notes": "ATEM camera page: the AF button works every time, auto iris (one-shot) and auto exposure reach the Sony camera, shutter angle fixed."
 }

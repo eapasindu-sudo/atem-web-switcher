@@ -467,7 +467,8 @@ class Sony extends EventEmitter {
 		const prev = this.cc.last[key]
 		this.cc.last[key] = data
 		if (Date.now() < this.cc.readyAt || !this.config.ccu.atemControl) return
-		if (prev && prev.length === data.length && prev.every((v, i) => v === data[i])) return
+		// a button (auto focus, auto iris) carries no value: every press counts
+		if (data.length && prev && prev.length === data.length && prev.every((v, i) => v === data[i])) return
 		const cam = this.config.cameras.find((c) => c.input && c.input === source)
 		if (!cam) return
 		const p = this.props(cam.id)
@@ -495,6 +496,9 @@ class Sony extends EventEmitter {
 				if (list.length) this.set(id, 'iris', list[Math.round((1 - clamp(n, 0, 1)) * (list.length - 1))])
 				break
 			}
+			case '0.5': // instantaneous auto aperture: the camera sets the iris once by itself, then it stays manual
+				this.oneShotAuto(id, p, 'irisMode')
+				break
 			case '0.8': { // zoom 0 (wide) .. 1 (tele): move by the change
 				const d = n - (prev ? prev[0] : n)
 				if (d) this.pulse(id, 'zoom', Math.sign(d) * 3, Math.min(800, Math.abs(d) * 4000))
@@ -531,7 +535,15 @@ class Sony extends EventEmitter {
 			case '1.12': // shutter speed 1/x
 				if (p.shutter && p.shutter.w && n > 0) this.set(id, 'shutter', nearest(optionsOf(p.shutter), 1 / n, shutterSeconds))
 				break
-			case '1.8': // shutter angle x100
+			case '1.10': { // auto exposure: 0 manual, 1 iris, 2 shutter, 3 iris + shutter, 4 shutter + iris
+				const autoIris = n === 1 || n === 3 || n === 4, autoShutter = n >= 2
+				this.setAutoMode(id, p, 'irisMode', autoIris)
+				this.setAutoMode(id, p, 'shutterMode', autoShutter)
+				break
+			}
+			case '1.11': // shutter angle x100 (1.8 is sharpening; older ATEMs were mapped there, so 1.8 above 3 is still an angle)
+			case '1.8':
+				if (cc === '1.8' && n <= 3) break
 				if (p.angle && p.angle.w) this.set(id, 'angle', nearest(optionsOf(p.angle), n * 10, (v) => v))
 				break
 			case '1.16': // ND in stops
@@ -560,6 +572,28 @@ class Sony extends EventEmitter {
 				this.send({ cmd: 'rec', id, on: n === 2 ? 1 : 0 })
 				break
 		}
+	}
+
+	// irisMode / shutterMode: 1 = automatic, 2 = manual (as the CCU screen shows them)
+	setAutoMode(id, p, key, auto) {
+		const m = p[key]
+		const want = auto ? 1 : 2
+		if (this.oneShot) clearTimeout(this.oneShot[id + key])
+		if (m && m.w && m.v !== want && optionsOf(m).includes(want)) this.set(id, key, want)
+	}
+
+	// auto once: switch to automatic, give the camera a moment to settle, then back to manual
+	oneShotAuto(id, p, key) {
+		const m = p[key]
+		if (!m || !m.w || !optionsOf(m).includes(1) || !optionsOf(m).includes(2)) return
+		if (m.v === 1) return // already automatic: leave it
+		this.set(id, key, 1)
+		clearTimeout(this.oneShot && this.oneShot[id + key])
+		this.oneShot = this.oneShot || {}
+		this.oneShot[id + key] = setTimeout(() => {
+			const q = this.props(id)
+			if (q && q[key] && q[key].w) this.set(id, key, 2)
+		}, 2000)
 	}
 
 	// ATEM gain (dB) to the camera's ISO: 0 dB = its lowest ISO, +6 dB = double

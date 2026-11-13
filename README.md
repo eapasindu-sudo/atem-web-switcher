@@ -52,7 +52,8 @@ More on the CCU page:
 
 ATEM Software Control: its **Camera** page (and ATEM camera control panels) controls the Sony cameras, like
 Middle Control. CAM 1, CAM 2 … are ATEM inputs, so set each camera's ATEM input on the PC window. Iris, shutter,
-gain/ISO, white balance and tint, ND, focus, zoom, contrast, saturation and record are passed on. The PC window
+gain/ISO, white balance and tint, ND, focus (and its AF button), zoom, auto iris (one-shot) and auto exposure,
+shutter angle, lift (black level), contrast, saturation and record are passed on. The PC window
 also has **Tally lamps on the cameras** and **Camera REC follows the ATEM's recording**.
 
 Drone tally (DJI RC Pro / RC Pro 2): install
