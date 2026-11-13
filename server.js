@@ -167,6 +167,12 @@ app.post('/api/licence', express.json(), async (req, res) => {
 	const lic = key.startsWith('EWF-CCU') ? LIC_CCU : LIC
 	try { res.json(await lic.activate(key)) } catch (e) { res.json({ ok: false, message: 'Could not reach the licence server. Check the internet.' }) }
 })
+// See or change the key any time: http://<switcher PC>:<port>/licence
+app.get('/licence', (req, res) => {
+	const st = LIC.status().ok ? LIC.status() : LIC_CCU.status()
+	const msg = st.state === 'licensed' ? 'Licensed with key ' + st.key + (st.expires ? ' (until ' + st.expires + ')' : '') + '. Enter another key to replace it.' : (st.message || 'Enter your licence key to start.')
+	res.type('html').send(LIC_PAGE(msg))
+})
 app.use((req, res, next) => {
 	if (licensed()) return next()
 	if (req.path.startsWith('/api/') || req.path.startsWith('/ws')) return res.status(402).json({ ok: false, error: 'licence' })

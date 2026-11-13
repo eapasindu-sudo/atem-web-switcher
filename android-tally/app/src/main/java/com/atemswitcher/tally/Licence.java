@@ -96,7 +96,7 @@ final class Licence {
         t.setText("ATEM Tally"); t.setTextSize(26); t.setTextColor(Color.rgb(200, 169, 106)); t.setGravity(Gravity.CENTER);
         TextView m = new TextView(a);
         String reason = p(a).getString("reason", "");
-        m.setText(!reason.isEmpty() ? reason : p(a).getString("key", "").isEmpty() ? "Enter your licence key to start." : "Connect to the internet once so the app can check your licence.");
+        m.setText(ok(a) ? "Licensed with key " + p(a).getString("key", "") + ". Enter another key to replace it." : !reason.isEmpty() ? reason : p(a).getString("key", "").isEmpty() ? "Enter your licence key to start." : "Connect to the internet once so the app can check your licence.");
         m.setTextColor(Color.rgb(200, 200, 200)); m.setGravity(Gravity.CENTER); m.setPadding(0, pad / 2, 0, pad / 2);
         EditText k = new EditText(a);
         k.setHint("EWF-TLY-XXXX-XXXX-XXXX"); k.setText(p(a).getString("key", ""));

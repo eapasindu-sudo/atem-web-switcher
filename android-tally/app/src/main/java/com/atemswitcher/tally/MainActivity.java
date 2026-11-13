@@ -163,6 +163,10 @@ public final class MainActivity extends Activity {
         col.addView(allow);
         start = new Button(this);
         start.setOnClickListener(v -> toggle());
+        Button licence = new Button(this);
+        licence.setText("Licence key");
+        licence.setOnClickListener(v -> Licence.show(this, this::recreate));
+        col.addView(licence);
         col.addView(start);
 
         TextView help = text("Red border = this drone is ON AIR (PROGRAM), green = PREVIEW. "
