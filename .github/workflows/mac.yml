@@ -64,8 +64,9 @@ jobs:
           </dict></plist>
           PLIST
             codesign --force --deep --sign - "$APP"
-            mkdir -p dmg && rm -rf dmg/* && cp -R "$APP" dmg/ && ln -s /Applications dmg/Applications
-            hdiutil create -volname "ATEM Switcher" -srcfolder dmg -ov -format UDZO "ATEM-Switcher-mac-$ARCH.dmg"
+            # (no /Applications shortcut inside: hdiutil then mis-sizes the image and fails with "no space left")
+            rm -rf dmg && mkdir dmg && cp -R "$APP" dmg/
+            hdiutil create -volname "ATEM Switcher" -srcfolder dmg -fs HFS+ -ov -format UDZO "ATEM-Switcher-mac-$ARCH.dmg"
             cd ..
           done
           ls -la dist/*.dmg
