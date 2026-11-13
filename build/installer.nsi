@@ -4,7 +4,7 @@ Unicode true
 
 !define APPNAME "ATEM Switcher"
 !define EXE "ATEM-Switcher.exe"
-!define VERSION "1.6.2"
+!define VERSION "1.6.3"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\ATEMSwitcher"
 
 Name "${APPNAME}"
@@ -13,7 +13,8 @@ InstallDir "$PROGRAMFILES64\${APPNAME}"
 RequestExecutionLevel admin
 SetCompressor /SOLID lzma
 
-!define MUI_FINISHPAGE_RUN "$INSTDIR\${EXE}"
+!define MUI_FINISHPAGE_RUN
+!define MUI_FINISHPAGE_RUN_FUNCTION StartApp
 !define MUI_FINISHPAGE_RUN_TEXT "Start ATEM Switcher now"
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
@@ -75,8 +76,15 @@ Section "Install"
 
   ; auto-update runs the installer silently: start the new version when done
   IfSilent 0 +2
-  Exec '"$INSTDIR\${EXE}"'
+  Call StartApp
 SectionEnd
+
+; Start the app as the signed-in user, not as admin like this installer: started as admin, its Edge window
+; does not open while the user's own Edge is running, so after an update the app ran with no window.
+; explorer.exe starts it with the user's normal rights.
+Function StartApp
+  Exec '"$WINDIR\explorer.exe" "$INSTDIR\${EXE}"'
+FunctionEnd
 
 Section "Uninstall"
   nsExec::Exec 'taskkill /F /IM ${EXE}'
