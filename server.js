@@ -155,6 +155,26 @@ let atemSince = 0 // when we started looking for the ATEM at atemIp
 let connected = false
 
 const app = express()
+
+// ---------- Endora licence key (needed before the panel opens) ----------
+const { Licence } = require('./licence')
+const LIC = new Licence(DATA_DIR, 'atem-switcher')
+const LIC_CCU = new Licence(path.join(DATA_DIR, 'ccu'), 'atem-ccu')
+const licensed = () => LIC.status().ok || LIC_CCU.status().ok
+const LIC_PAGE = (msg) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ATEM Switcher – Licence</title><style>body{margin:0;background:#0b0a09;color:#f5f0e8;font:15px/1.5 system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh}.b{width:min(360px,90vw);text-align:center}h1{font:500 26px Georgia,serif;color:#c8a96a;margin:0 0 6px}p{color:#bbb}input{width:100%;box-sizing:border-box;background:#161412;color:#f5f0e8;border:1px solid #3a332c;border-radius:4px;padding:12px;font:16px monospace;text-align:center;text-transform:uppercase}button{width:100%;margin-top:10px;background:#c8a96a;color:#0b0a09;border:0;border-radius:4px;padding:12px;font-weight:700}#e{color:#ff8a80;min-height:22px;margin-top:8px}a{color:#c8a96a}</style></head><body><div class="b"><h1>ATEM Switcher</h1><p>${msg}</p><input id="k" placeholder="EWF-ATM-XXXX-XXXX-XXXX"><button id="g">Activate</button><div id="e"></div><p style="font-size:12px">No key yet? <a href="https://tools.endoraweddingfilms.com/#atem-switcher" target="_blank">Buy a licence</a></p></div><script>g.onclick=async()=>{e.textContent='Checking…';const r=await fetch('/api/licence',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:k.value})}).then(r=>r.json()).catch(()=>({message:'Could not reach the app.'}));if(r.ok)location.href='/';else e.textContent=r.message||'This key did not work.'}</script></body></html>`
+app.post('/api/licence', express.json(), async (req, res) => {
+	const key = String((req.body && req.body.key) || '').trim().toUpperCase()
+	const lic = key.startsWith('EWF-CCU') ? LIC_CCU : LIC
+	try { res.json(await lic.activate(key)) } catch (e) { res.json({ ok: false, message: 'Could not reach the licence server. Check the internet.' }) }
+})
+app.use((req, res, next) => {
+	if (licensed()) return next()
+	if (req.path.startsWith('/api/') || req.path.startsWith('/ws')) return res.status(402).json({ ok: false, error: 'licence' })
+	res.status(402).type('html').send(LIC_PAGE((LIC.status().message) || 'Enter your licence key to start.'))
+})
+setInterval(() => { LIC.refresh(); LIC_CCU.refresh() }, 6 * 3600 * 1000)
+LIC.refresh(); LIC_CCU.refresh()
+
 if (global.EMBEDDED_PUBLIC) {
 	// .exe build: the web page files are bundled inside the executable
 	app.use((req, res, next) => {

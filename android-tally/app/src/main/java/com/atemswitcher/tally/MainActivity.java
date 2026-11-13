@@ -64,6 +64,8 @@ public final class MainActivity extends Activity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         prefs = Prefs.get(this);
+        if (!Licence.ok(this)) { Licence.show(this, this::recreate); return; }
+        Licence.refresh(this);
         float d = getResources().getDisplayMetrics().density;
         int pad = Math.round(16 * d);
 
