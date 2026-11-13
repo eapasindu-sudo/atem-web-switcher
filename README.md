@@ -46,7 +46,8 @@ same router or switch as the PC and use the wired IP address. It is steadier tha
 More on the CCU page:
 - **LIVE** picture from the selected camera, with timecode (tap it for full screen).
 - **LOOK** page: white balance, tint (A-B, G-M), Picture Profile, black level, saturation, Creative Look.
-- **PRESETS** page: save a camera's colour and exposure, recall it on one camera or all, and **Match all cameras**.
+- **PRESETS** page: save a camera's colour and exposure, recall it on one camera or all, and **Match all cameras**, **Preset change** speed (CUT, or iris/shutter/ISO/Kelvin/ND glide over 1–8 s on air), and **Copy settings** (send only the ticked settings, e.g. WB and tint, from one camera to the cameras you pick).
+- **MULTI** page: every camera's live picture with tally, ISO, iris, shutter and WB; tap a picture to control that camera.
 - **Zoom** (power zoom lenses), **PUSH AF**, **REC ALL**, battery and recording time left.
 - **MIDI** knobs (Chrome or Edge on the PC): tap MIDI, tap a control, turn a knob.
 

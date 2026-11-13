@@ -1,5 +1,5 @@
 {
-  "version": "1.6.3",
+  "version": "1.6.4",
   "url": "https://github.com/eapasindu-sudo/atem-web-switcher/raw/main/download/ATEM-Switcher-Setup.exe",
-  "notes": "After an update the app opens its window again. ATEM camera page: AF every press, auto iris and auto exposure reach the Sony camera, shutter angle fixed."
+  "notes": "CCU: new MULTI page (all cameras' pictures at once, tap one to control it), Copy settings (send chosen settings from one camera to others), Preset change speed (CUT or a 1-8 s glide)."
 }
