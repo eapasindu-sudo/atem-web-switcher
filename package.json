@@ -1,6 +1,6 @@
 {
   "name": "atem-web-switcher",
-  "version": "1.6.2",
+  "version": "1.6.3",
   "description": "Web control surface for Blackmagic ATEM Mini Extreme",
   "main": "server.js",
   "scripts": {
