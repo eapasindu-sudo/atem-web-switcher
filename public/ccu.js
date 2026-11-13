@@ -13,7 +13,8 @@ window.CCU = (() => {
   let presets = []
   let live = true
   let visible = false
-  let watching = null
+  let watching = null          // camera id on the CCU pages, or 'multi'
+  let presetFade = 0
   try { followPreview = localStorage.getItem('ccuFollow') !== '0' } catch {}
   try { selected = localStorage.getItem('ccuCam') } catch {}
   try { page = localStorage.getItem('ccuPage') || 'exposure' } catch {}
@@ -214,6 +215,13 @@ window.CCU = (() => {
     grid.innerHTML = ''
     const side = $('ccuSide')
     $('ccuEmpty').hidden = true
+    grid.classList.toggle('multi', page === 'multi')
+    if (page === 'multi' && cams.length) {
+      side.hidden = true
+      grid.classList.remove('presets', 'dense')
+      renderMulti(grid)
+      return
+    }
     if (!cam) {
       side.hidden = true
       $('ccuEmpty').hidden = false
@@ -282,6 +290,98 @@ window.CCU = (() => {
     }
   }
 
+  // ---- MultiView: every camera's picture with its tally and exposure; tap one to control it ----
+  function renderMulti(grid) {
+    for (const c of cams) {
+      const t = document.createElement('button')
+      t.className = 'mv-tile ' + tallyOf(c)
+      t.innerHTML = '<img alt=""><span class="mv-name"></span><span class="mv-info"></span>'
+      t.dataset.lv = c.id
+      t.querySelector('.mv-name').textContent = c.name + (c.input ? '  ·  IN ' + c.input : '')
+      const p = c.props || {}
+      const info = []
+      if (c.status !== 'connected') info.push(c.status === 'connecting' || c.status === 'reconnecting' ? 'connecting…' : 'not connected')
+      else {
+        if (p.iso) info.push('ISO ' + fmtIso(p.iso.v))
+        if (p.iris) info.push(fmtIris(p.iris.v))
+        if (p.shutter) info.push(fmtShutter(p.shutter.v))
+        if (p.wb) info.push(p.wb.v === 0x100 && p.kelvin ? fmtKelvin(p.kelvin.v) : fmtWb(p.wb.v))
+        if (p.rec && p.rec.v === 1) info.push('● REC')
+      }
+      t.querySelector('.mv-info').textContent = info.join('   ')
+      if (lastFrame[c.id]) t.querySelector('img').src = lastFrame[c.id]
+      t.addEventListener('click', () => {
+        select(c.id, true)
+        page = 'exposure'
+        try { localStorage.setItem('ccuPage', page) } catch {}
+        render()
+      })
+      grid.appendChild(t)
+    }
+  }
+  const lastFrame = {}
+
+  // copy only the ticked settings from this camera to the ticked cameras
+  const REPLICATE = [
+    { label: 'WB', keys: ['wb', 'kelvin'] },
+    { label: 'Tint', keys: ['wbTint', 'tintAB', 'tintGM'] },
+    { label: 'Iris', keys: ['iris'] },
+    { label: 'Shutter', keys: ['shutter', 'angle'] },
+    { label: 'ISO / gain', keys: ['iso', 'ei'] },
+    { label: 'ND', keys: ['nd'] },
+    { label: 'Look', keys: ['pp', 'ppBlack', 'ppSat', 'look', 'lookContrast', 'lookSat'] },
+  ]
+  const replicatePick = { what: new Set(['WB', 'Tint']), to: null }
+  function replicateCard(cam) {
+    const el = document.createElement('div')
+    el.className = 'preset replicate'
+    el.innerHTML = '<b>Copy settings</b><small>Copy only what you tick to the cameras you tick.</small><div class="chips what"></div><div class="chips to"></div><div class="preset-row"><button class="go"></button></div>'
+    const others = cams.filter((c) => c.id !== cam.id)
+    if (!replicatePick.to) replicatePick.to = new Set(others.map((c) => c.id))
+    const chip = (label, on, toggle) => {
+      const b = document.createElement('button')
+      b.className = 'chip' + (on ? ' on' : '')
+      b.textContent = label
+      b.addEventListener('click', () => { toggle(); b.classList.toggle('on') })
+      return b
+    }
+    for (const r of REPLICATE) {
+      el.querySelector('.what').appendChild(chip(r.label, replicatePick.what.has(r.label), () => {
+        replicatePick.what.has(r.label) ? replicatePick.what.delete(r.label) : replicatePick.what.add(r.label)
+      }))
+    }
+    for (const c of others) {
+      el.querySelector('.to').appendChild(chip('→ ' + c.name, replicatePick.to.has(c.id), () => {
+        replicatePick.to.has(c.id) ? replicatePick.to.delete(c.id) : replicatePick.to.add(c.id)
+      }))
+    }
+    const go = el.querySelector('.go')
+    go.textContent = `Copy from ${cam.name}`
+    go.addEventListener('click', () => {
+      const keys = REPLICATE.filter((r) => replicatePick.what.has(r.label)).flatMap((r) => r.keys)
+      const to = others.filter((c) => replicatePick.to.has(c.id)).map((c) => c.id)
+      if (!keys.length || !to.length) return
+      send({ cmd: 'camReplicate', id: cam.id, keys, to })
+      go.textContent = 'Copied ✓'
+      setTimeout(() => { go.textContent = `Copy from ${cam.name}` }, 1500)
+    })
+    return el
+  }
+
+  function fadeCard() {
+    const el = document.createElement('div')
+    el.className = 'preset'
+    el.innerHTML = '<b>Preset change</b><small>CUT: at once. A time: iris, shutter, ISO, Kelvin, ND and tint glide to the preset, for a change on air.</small><div class="chips fade"></div>'
+    for (const secs of [0, 1, 2, 4, 8]) {
+      const b = document.createElement('button')
+      b.className = 'chip' + (presetFade === secs ? ' on' : '')
+      b.textContent = secs ? secs + ' s' : 'CUT'
+      b.addEventListener('click', () => send({ cmd: 'camPresetFade', secs }))
+      el.querySelector('.fade').appendChild(b)
+    }
+    return el
+  }
+
   function renderPresets(cam, grid) {
     const add = document.createElement('div')
     add.className = 'preset preset-new'
@@ -297,6 +397,8 @@ window.CCU = (() => {
     })
     if (cams.length < 2) add.querySelector('.match').parentNode.remove()
     grid.appendChild(add)
+    grid.appendChild(fadeCard())
+    if (cams.length >= 2) grid.appendChild(replicateCard(cam))
     presets.forEach((pr, i) => {
       const el = document.createElement('div')
       el.className = 'preset'
@@ -317,6 +419,12 @@ window.CCU = (() => {
   // ---- live picture: only while the CCU page is open and LIVE is on ----
   function updateWatch() {
     const cam = current()
+    if (visible && page === 'multi' && cams.length) {
+      $('ccuView').hidden = true
+      watching = 'multi'
+      send({ cmd: 'camWatch', ids: cams.filter((c) => c.status === 'connected').map((c) => c.id) })
+      return
+    }
     const want = visible && live && cam && cam.status === 'connected' ? cam.id : null
     if (want !== watching) {
       $('ccuImg').removeAttribute('src')
@@ -524,10 +632,18 @@ window.CCU = (() => {
       available = msg.available
       cams = msg.cams || []
       presets = msg.presets || []
+      presetFade = Number(msg.presetFade) || 0
       followAtem()
       render()
     },
     onLive(msg) {
+      if (watching === 'multi') {
+        const src = 'data:image/jpeg;base64,' + msg.jpg
+        lastFrame[msg.id] = src
+        const img = document.querySelector(`.mv-tile[data-lv="${CSS.escape(msg.id)}"] img`)
+        if (img) img.src = src
+        return
+      }
       if (msg.id !== watching) return
       $('ccuImg').src = 'data:image/jpeg;base64,' + msg.jpg
       $('ccuTc').textContent = fmtTc(msg.tc)

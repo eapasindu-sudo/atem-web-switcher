@@ -50,6 +50,25 @@ function errorText(code) {
 // settings a preset stores, in the order they are put back (white balance mode before Kelvin)
 const PRESET_KEYS = ['wb', 'kelvin', 'wbTint', 'tintAB', 'tintGM', 'iris', 'shutter', 'angle', 'iso', 'ei', 'nd', 'pp', 'ppBlack', 'ppSat', 'look', 'lookContrast', 'lookSat']
 
+// settings a preset can glide to (each step is a value the camera offers, in the camera's own order)
+const FADE_KEYS = ['kelvin', 'wbTint', 'tintAB', 'tintGM', 'iris', 'shutter', 'angle', 'iso', 'ei', 'nd']
+
+// the values between the current one and target, target last; a single jump when either is not in the list
+function stepsBetween(p, target) {
+	const list = optionsOf(p)
+	const i = list.findIndex((x) => String(x) === String(p.v))
+	const j = list.findIndex((x) => String(x) === String(target))
+	if (i < 0 || j < 0 || i === j) return [target]
+	const out = []
+	for (let k = i + Math.sign(j - i); k !== j + Math.sign(j - i); k += Math.sign(j - i)) out.push(list[k])
+	// at most about 25 steps: skip some in between on long ranges, always ending on the target
+	if (out.length > 25) {
+		const n = Math.ceil(out.length / 25)
+		return out.filter((_, k) => k % n === n - 1 || k === out.length - 1)
+	}
+	return out
+}
+
 // all the values a setting can take: the camera's list, or every step of its range
 function optionsOf(p) {
 	if (!p) return []
@@ -135,7 +154,7 @@ class Sony extends EventEmitter {
 		this.lastTally = {} // id -> 'pgm' | 'pvw' | ''
 		this.cc = { last: {}, readyAt: Infinity } // ATEM camera control values seen
 		if (!Array.isArray(config.presets)) config.presets = []
-		config.ccu = Object.assign({ atemControl: true, tally: true, recWithAtem: false }, config.ccu || {})
+		config.ccu = Object.assign({ atemControl: true, tally: true, recWithAtem: false, presetFade: 0 }, config.ccu || {})
 		if (this.bridgePath) this.start()
 	}
 
@@ -300,6 +319,8 @@ class Sony extends EventEmitter {
 		if (msg.cmd === 'camPresetRecall') return this.recallPreset(Number(msg.preset), msg.id === 'all' ? 'all' : String(msg.id || ''))
 		if (msg.cmd === 'camPresetDelete') return this.deletePreset(Number(msg.preset))
 		if (msg.cmd === 'camMatch') return this.match(String(msg.id || ''))
+		if (msg.cmd === 'camReplicate') return this.replicate(String(msg.id || ''), msg.keys, msg.to)
+		if (msg.cmd === 'camPresetFade') return this.setFade(msg.secs)
 		const id = String(msg.id || '')
 		if (!this.config.cameras.some((c) => c.id === id)) return
 		const speed = (v, max = 8) => clamp(Math.round(Number(v) || 0), -max, max)
@@ -383,12 +404,42 @@ class Sony extends EventEmitter {
 		return values
 	}
 
-	// puts the values back one after another (the camera needs the WB mode before the Kelvin)
-	apply(id, values) {
+	// puts the values back one after another (the camera needs the WB mode before the Kelvin).
+	// fade (seconds): iris, shutter, ISO, Kelvin, ND, tint go there step by step instead of in one jump
+	apply(id, values, fade = 0) {
 		const p = this.props(id)
 		if (!p || !values) return
+		this.fades = this.fades || {}
+		for (const t of this.fades[id] || []) clearTimeout(t)
+		const timers = (this.fades[id] = [])
+		const later = (ms, fn) => timers.push(setTimeout(fn, ms))
 		const keys = PRESET_KEYS.filter((k) => values[k] !== undefined && p[k] && p[k].w && String(p[k].v) !== String(values[k]))
-		keys.forEach((k, i) => setTimeout(() => this.set(id, k, values[k]), i * 150))
+		const jumps = keys.filter((k) => !(fade > 0 && FADE_KEYS.includes(k)))
+		const glides = keys.filter((k) => fade > 0 && FADE_KEYS.includes(k))
+		jumps.forEach((k, i) => later(i * 150, () => this.set(id, k, values[k])))
+		const start = jumps.length * 150 + (jumps.includes('wb') ? 250 : 0)
+		for (const k of glides) {
+			const path = stepsBetween(p[k], values[k])
+			const every = Math.max(120, Math.round((fade * 1000) / path.length))
+			path.forEach((v, i) => later(start + (i + 1) * every, () => this.set(id, k, v)))
+		}
+	}
+
+	setFade(secs) {
+		const n = Number(secs)
+		if (!(n >= 0 && n <= 10)) return
+		this.config.ccu.presetFade = n
+		this.save()
+		this.emit('change')
+	}
+
+	// copy only the chosen settings from one camera to the chosen cameras
+	replicate(fromId, keys, to) {
+		const all = this.snapshot(fromId)
+		if (!all || !Array.isArray(keys) || !Array.isArray(to)) return
+		const values = {}
+		for (const k of keys) if (all[k] !== undefined) values[k] = all[k]
+		for (const id of to.map(String)) if (id !== fromId && this.config.cameras.some((c) => c.id === id)) this.apply(id, values)
 	}
 
 	savePreset(id, name) {
@@ -404,7 +455,7 @@ class Sony extends EventEmitter {
 		const preset = this.config.presets[index]
 		if (!preset) return
 		const ids = target === 'all' ? this.config.cameras.map((c) => c.id) : [target]
-		for (const id of ids) this.apply(id, preset.values)
+		for (const id of ids) this.apply(id, preset.values, this.config.ccu.presetFade || 0)
 	}
 
 	deletePreset(index) {

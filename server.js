@@ -146,7 +146,7 @@ sony.on('admin', () => broadcastAdmin().catch(() => {}))
 sony.on('lv', (id, jpg, tc) => {
 	const msg = JSON.stringify({ type: 'lv', id, jpg, tc })
 	for (const [ws, c] of clients) {
-		if (c.watching === id && ws.readyState === 1 && ws.bufferedAmount < 512 * 1024) ws.send(msg)
+		if (c.watching && c.watching.has(id) && ws.readyState === 1 && ws.bufferedAmount < 512 * 1024) ws.send(msg)
 	}
 })
 let atem = null
@@ -471,7 +471,7 @@ function broadcast() {
 }
 
 function camsMessage() {
-	return JSON.stringify({ type: 'cams', available: sony.available, cams: sony.cams(), presets: sony.presets() })
+	return JSON.stringify({ type: 'cams', available: sony.available, cams: sony.cams(), presets: sony.presets(), presetFade: (config.ccu && config.ccu.presetFade) || 0 })
 }
 
 function broadcastCams() {
@@ -568,15 +568,15 @@ async function handleCommand(ws, msg) {
 		return broadcastAdmin()
 	}
 	if (msg.cmd === 'camWatch') {
-		const id = msg.id ? String(msg.id) : null
-		if (client.watching !== id) {
-			sony.watch(client.watching, -1)
-			client.watching = id
-			sony.watch(id, +1)
-		}
+		// one camera (CCU page) or several (MultiView); max 9
+		const want = new Set((Array.isArray(msg.ids) ? msg.ids : msg.id ? [msg.id] : []).map(String).slice(0, 9))
+		const had = client.watching || new Set()
+		for (const id of had) if (!want.has(id)) sony.watch(id, -1)
+		for (const id of want) if (!had.has(id)) sony.watch(id, +1)
+		client.watching = want
 		return
 	}
-	if (/^cam(Set|Step|Rec|RecAll|Focus|Zoom|AF|Reconnect|PresetSave|PresetRecall|PresetDelete|Match)$/.test(msg.cmd)) return sony.command(msg)
+	if (/^cam(Set|Step|Rec|RecAll|Focus|Zoom|AF|Reconnect|PresetSave|PresetRecall|PresetDelete|PresetFade|Match|Replicate)$/.test(msg.cmd)) return sony.command(msg)
 	if (client.role === 'admin' && isLocal(client.ip)) {
 		if (msg.cmd === 'camOptions') return sony.setOptions(msg.options || {})
 		if (msg.cmd === 'camScan') return sony.startScan()
@@ -635,7 +635,7 @@ wss.on('connection', (ws, req) => {
 	})
 	ws.on('close', () => {
 		const c = clients.get(ws)
-		if (c && c.watching) sony.watch(c.watching, -1)
+		if (c && c.watching) for (const id of c.watching) sony.watch(id, -1)
 		clients.delete(ws)
 		broadcastAdmin().catch(() => {})
 	})
