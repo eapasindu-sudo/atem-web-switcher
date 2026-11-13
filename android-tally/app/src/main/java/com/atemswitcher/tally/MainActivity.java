@@ -49,6 +49,7 @@ import java.util.concurrent.atomic.AtomicReference;
 /** Settings screen: find the ATEM Switcher PC, pick the ATEM input, allow drawing over apps, start. */
 public final class MainActivity extends Activity {
     private final Handler main = new Handler(Looper.getMainLooper());
+    private boolean locked; // licence screen showing: the settings views were not built
     private SharedPreferences prefs;
     private EditText host;
     private Spinner input;
@@ -64,7 +65,7 @@ public final class MainActivity extends Activity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         prefs = Prefs.get(this);
-        if (!Licence.ok(this)) { Licence.show(this, this::recreate); return; }
+        if (!Licence.ok(this)) { locked = true; Licence.show(this, this::recreate); return; }
         Licence.refresh(this);
         float d = getResources().getDisplayMetrics().density;
         int pad = Math.round(16 * d);
@@ -197,13 +198,14 @@ public final class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (locked) return;
         refresh();
         if (inputIds.size() == 8 && !prefs.getString(Prefs.SOURCES, "").isEmpty()) savedInputs();
     }
 
     @Override
     protected void onPause() {
-        saveHost();
+        if (!locked) saveHost();
         super.onPause();
     }
 
