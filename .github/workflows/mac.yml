@@ -1,0 +1,79 @@
+# Mac app: ATEM Switcher.app (Apple Silicon + Intel) as .dmg, published to the GitHub release "mac".
+# The app is signed ad hoc: first open = System Settings → Privacy & Security → Open Anyway.
+name: Build Mac app
+on:
+  push:
+    branches: [main]
+    paths: ['server.js', 'sony.js', 'public/**', 'build/**', 'package.json', '.github/workflows/mac.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+      - name: Bundle the server (same bundle as the Windows build)
+        run: |
+          mkdir -p dist && cd dist
+          for f in app admin ccu more; do cp ../public/$f.js ../public/$f.js.txt; done
+          cp ../public/manifest.json ../public/manifest.json.txt
+          npx --yes esbuild@0.24 ../build/exe-entry.js --bundle --platform=node --target=node22 \
+            --loader:.html=text --loader:.css=text --loader:.txt=text --loader:.png=binary \
+            --alias:@julusian/freetype2=../build/stub/freetype2.js --alias:threadedclass=../build/stub/threadedclass.js \
+            --outfile=bundle.js
+          rm ../public/*.txt
+          echo '{"main":"bundle.js","output":"sea-prep.blob","disableExperimentalSEAWarning":true,"useCodeCache":false,"useSnapshot":false}' > sea-config.json
+          node --experimental-sea-config sea-config.json
+      - name: App icon
+        run: |
+          mkdir -p dist/icon.iconset
+          for s in 16 32 64 128 256 512; do sips -z $s $s public/icon.png --out dist/icon.iconset/icon_${s}x${s}.png >/dev/null; sips -z $((s*2)) $((s*2)) public/icon.png --out dist/icon.iconset/icon_${s}x${s}@2x.png >/dev/null; done
+          iconutil -c icns dist/icon.iconset -o dist/icon.icns
+      - name: Build the .app for both Mac chips
+        run: |
+          NODE_VER=$(node -v)
+          for ARCH in arm64 x64; do
+            cd dist
+            curl -sSfLO https://nodejs.org/dist/$NODE_VER/node-$NODE_VER-darwin-$ARCH.tar.gz
+            tar -xzf node-$NODE_VER-darwin-$ARCH.tar.gz
+            APP="ATEM Switcher.app"; rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+            cp node-$NODE_VER-darwin-$ARCH/bin/node "$APP/Contents/MacOS/ATEM Switcher"
+            codesign --remove-signature "$APP/Contents/MacOS/ATEM Switcher"
+            npx --yes postject@1.0.0-alpha.6 "$APP/Contents/MacOS/ATEM Switcher" NODE_SEA_BLOB sea-prep.blob \
+              --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 --macho-segment-name NODE_SEA
+            cp icon.icns "$APP/Contents/Resources/icon.icns"
+            cat > "$APP/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleName</key><string>ATEM Switcher</string>
+            <key>CFBundleDisplayName</key><string>ATEM Switcher</string>
+            <key>CFBundleIdentifier</key><string>com.endora.atemswitcher</string>
+            <key>CFBundleVersion</key><string>1.0.${{ github.run_number }}</string>
+            <key>CFBundleShortVersionString</key><string>1.0.${{ github.run_number }}</string>
+            <key>CFBundleExecutable</key><string>ATEM Switcher</string>
+            <key>CFBundleIconFile</key><string>icon</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>LSUIElement</key><true/>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict></plist>
+          PLIST
+            codesign --force --deep --sign - "$APP"
+            mkdir -p dmg && rm -rf dmg/* && cp -R "$APP" dmg/ && ln -s /Applications dmg/Applications
+            hdiutil create -volname "ATEM Switcher" -srcfolder dmg -ov -format UDZO "ATEM-Switcher-mac-$ARCH.dmg"
+            cd ..
+          done
+          ls -la dist/*.dmg
+      - name: Publish to the GitHub release "mac" (with the Windows installer beside it)
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          cp download/ATEM-Switcher-Setup.exe dist/ 2>/dev/null || true
+          gh release view mac >/dev/null 2>&1 || gh release create mac --title "ATEM Switcher (Mac + Windows)" --notes-file build/mac-release-notes.md
+          gh release upload mac dist/ATEM-Switcher-mac-arm64.dmg dist/ATEM-Switcher-mac-x64.dmg --clobber
+          [ -f dist/ATEM-Switcher-Setup.exe ] && gh release upload mac dist/ATEM-Switcher-Setup.exe --clobber || true
+          gh release edit mac --latest

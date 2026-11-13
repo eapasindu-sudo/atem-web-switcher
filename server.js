@@ -29,9 +29,11 @@ try {
 const DATA_DIR =
 	IS_EXE && process.platform === 'win32'
 		? path.join(process.env.APPDATA || path.dirname(process.execPath), 'ATEM Switcher')
-		: IS_EXE
-			? path.dirname(process.execPath)
-			: __dirname
+		: IS_EXE && process.platform === 'darwin'
+			? path.join(process.env.HOME || path.dirname(process.execPath), 'Library', 'Application Support', 'ATEM Switcher')
+			: IS_EXE
+				? path.dirname(process.execPath)
+				: __dirname
 try {
 	fs.mkdirSync(DATA_DIR, { recursive: true })
 } catch {}
