@@ -13,6 +13,9 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import android.text.InputType;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -31,6 +34,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.Inet4Address;
@@ -41,6 +45,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -53,10 +58,11 @@ public final class MainActivity extends Activity {
     private SharedPreferences prefs;
     private EditText host;
     private Spinner input;
-    private TextView status, widthLabel;
-    private Button allow, find, start;
+    private TextView status, widthLabel, opacityLabel, signal;
+    private Button allow, find, start, test;
     private final List<Integer> inputIds = new ArrayList<>();
     private Button update;
+    private boolean downloading;
     // the newest APK is always at the same link; tally-version.json next to it says which build it is
     static final String RELEASE = "https://github.com/eapasindu-sudo/atem-web-switcher/releases/download/tally-android/";
     static final String APK_URL = RELEASE + "ATEM-Tally.apk";
@@ -83,11 +89,13 @@ public final class MainActivity extends Activity {
         col.addView(title);
         update = new Button(this);
         update.setVisibility(View.GONE);
-        update.setOnClickListener(v -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(APK_URL))));
+        update.setOnClickListener(v -> installUpdate());
         col.addView(update);
         status = text("", 15);
         status.setPadding(0, Math.round(4 * d), 0, Math.round(12 * d));
         col.addView(status);
+        signal = text("", 13);
+        col.addView(signal);
 
         // 1. where the ATEM Switcher runs
         col.addView(label("ATEM IP address (or the ATEM Switcher PC), on the same Wi-Fi as this controller"));
@@ -149,12 +157,42 @@ public final class MainActivity extends Activity {
 
             @Override
             public void onStopTrackingTouch(SeekBar s) {
-                restartIfRunning();
+                TallyService.restyle(MainActivity.this);
             }
         });
         col.addView(width);
+        col.addView(label("Border style"));
+        col.addView(choice(new String[]{"Full border", "Corners only", "Dashed"}, Prefs.STYLE));
+        col.addView(label("Border sides"));
+        col.addView(choice(new String[]{"All sides", "Top only", "Bottom only", "Top and bottom", "Left and right"}, Prefs.SIDES));
+        opacityLabel = label("");
+        col.addView(opacityLabel);
+        SeekBar opacity = new SeekBar(this);
+        opacity.setMax(80); // 20-100 %
+        opacity.setProgress(prefs.getInt(Prefs.OPACITY, 100) - 20);
+        showOpacity();
+        opacity.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar s, int p, boolean user) {
+                prefs.edit().putInt(Prefs.OPACITY, p + 20).apply();
+                showOpacity();
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar s) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar s) {
+                TallyService.restyle(MainActivity.this);
+            }
+        });
+        col.addView(opacity);
         col.addView(check("Green border when on PREVIEW", Prefs.PREVIEW, true));
         col.addView(check("Show ON AIR / PREVIEW text at the top", Prefs.LABEL, false));
+        col.addView(check("Red border pulses during a transition", Prefs.PULSE, true));
+        col.addView(check("Show \"connected / connection lost / reconnected\" messages", Prefs.MESSAGES, true));
+        col.addView(check("Wi-Fi signal bars in the top-left corner", Prefs.METER, false));
 
         // 4. permission and start
         allow = new Button(this);
@@ -168,11 +206,18 @@ public final class MainActivity extends Activity {
         licence.setOnClickListener(v -> Licence.show(this, this::recreate));
         col.addView(licence);
         col.addView(start);
+        test = new Button(this);
+        test.setText("Test the border (12 s): red, green, transition, no connection");
+        test.setOnClickListener(v -> {
+            if (canDraw()) TallyService.test(this);
+        });
+        col.addView(test);
 
         TextView help = text("Red border = this drone is ON AIR (PROGRAM), green = PREVIEW. "
                 + "Start it, then open DJI Fly: the border stays on top. "
                 + "An orange dot in the corner means the tally is not connected. "
-                + "Stop it from the notification or here.", 13);
+                + "Find looks for the ATEM on this Wi-Fi and picks the input named DRONE (or DJI) by itself. "
+                + "Stop it from the notification, from the Tally button in the quick settings, or here.", 13);
         help.setTextColor(Color.GRAY);
         help.setPadding(0, Math.round(12 * d), 0, 0);
         col.addView(help);
@@ -190,11 +235,46 @@ public final class MainActivity extends Activity {
                         ? getPackageManager().getPackageInfo(getPackageName(), 0).getLongVersionCode()
                         : getPackageManager().getPackageInfo(getPackageName(), 0).versionCode;
                 if (latest > mine) main.post(() -> {
-                    update.setText("Update available (1.0." + latest + "): tap to download, then install it");
+                    update.setText("Update available (1.0." + latest + "): tap to install it");
                     update.setVisibility(View.VISIBLE);
                 });
             } catch (Exception ignored) {
                 // no internet: nothing to show
+            }
+        }).start();
+    }
+
+    /** downloads the new APK here and hands it to Android's installer, which asks "Update this app?" */
+    private void installUpdate() {
+        if (downloading) return;
+        if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+            status.setText("Allow \"Install unknown apps\" for ATEM Tally, come back, then tap Update again.");
+            try {
+                startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName())));
+            } catch (ActivityNotFoundException e) {
+                status.setText("This controller has no setting for installing apps. Download the APK on a PC: " + APK_URL);
+            }
+            return;
+        }
+        downloading = true;
+        update.setEnabled(false);
+        update.setText("Downloading update… 0%");
+        new Thread(() -> {
+            try {
+                File apk = new File(getCacheDir(), "ATEM-Tally-update.apk");
+                Updater.download(APK_URL, apk, pct -> main.post(() -> update.setText("Downloading update… " + pct + "%")));
+                main.post(() -> update.setText("Installing… tap Update (or Install) when Android asks"));
+                Updater.install(this, apk);
+            } catch (Exception e) {
+                main.post(() -> {
+                    update.setText("Update failed: tap to try again");
+                    status.setText("Could not download the update (" + e.getMessage() + "). Is this controller on the internet?");
+                });
+            } finally {
+                main.post(() -> {
+                    downloading = false;
+                    update.setEnabled(true);
+                });
             }
         }).start();
     }
@@ -204,11 +284,14 @@ public final class MainActivity extends Activity {
         super.onResume();
         if (locked) return;
         refresh();
+        main.removeCallbacks(meter);
+        main.post(meter);
         if (inputIds.size() == 8 && !prefs.getString(Prefs.SOURCES, "").isEmpty()) savedInputs();
     }
 
     @Override
     protected void onPause() {
+        main.removeCallbacks(meter);
         if (!locked) saveHost();
         super.onPause();
     }
@@ -235,9 +318,82 @@ public final class MainActivity extends Activity {
         c.setChecked(prefs.getBoolean(key, def));
         c.setOnCheckedChangeListener((v, on) -> {
             prefs.edit().putBoolean(key, on).apply();
-            restartIfRunning();
+            TallyService.restyle(this);
         });
         return c;
+    }
+
+    /** a drop-down that saves the chosen position under key */
+    private Spinner choice(String[] items, String key) {
+        Spinner sp = new Spinner(this);
+        ArrayAdapter<String> a = new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, items) {
+            @Override
+            public View getView(int pos, View v, ViewGroup parent) {
+                View view = super.getView(pos, v, parent);
+                ((TextView) view).setTextColor(Color.WHITE);
+                ((TextView) view).setTextSize(16);
+                return view;
+            }
+        };
+        a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        sp.setAdapter(a);
+        sp.setSelection(Math.max(0, Math.min(items.length - 1, prefs.getInt(key, 0))));
+        sp.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int pos, long id) {
+                if (pos == prefs.getInt(key, 0)) return;
+                prefs.edit().putInt(key, pos).apply();
+                TallyService.restyle(MainActivity.this);
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
+        });
+        return sp;
+    }
+
+    private void showOpacity() {
+        opacityLabel.setText("Border opacity: " + prefs.getInt(Prefs.OPACITY, 100) + "%");
+    }
+
+    // ---- connection meter ----
+    private final Runnable meter = new Runnable() {
+        @Override
+        public void run() {
+            showSignal();
+            main.postDelayed(this, 1000);
+        }
+    };
+
+    private static final String[] QUALITY = {"no connection", "poor", "weak", "good", "excellent"};
+
+    /** "Signal ▂▄▆█ good · Wi-Fi -52 dBm · ping 4 ms" */
+    private void showSignal() {
+        boolean on = running();
+        int rssi = on ? TallyService.rssi : TallyService.readRssi(this);
+        if (rssi == TallyService.UNKNOWN) rssi = TallyService.readRssi(this);
+        int ping = on ? TallyService.pingMs : -1;
+        SpannableStringBuilder sb = new SpannableStringBuilder();
+        if (on) {
+            int bars = TallyService.bars(TallyService.linkOk, rssi, ping);
+            int color = bars >= 3 ? Color.rgb(0, 200, 60) : bars == 2 ? Color.rgb(255, 210, 0) : Color.rgb(235, 60, 60);
+            sb.append("Signal ");
+            String glyphs = "▂▄▆█";
+            for (int i = 0; i < 4; i++) {
+                int startAt = sb.length();
+                sb.append(glyphs.charAt(i));
+                sb.setSpan(new ForegroundColorSpan(i < bars ? color : Color.rgb(80, 80, 80)), startAt, sb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+            sb.append(" ").append(QUALITY[bars]);
+        } else {
+            sb.append("Connection");
+        }
+        sb.append(" · Wi-Fi ").append(rssi == TallyService.UNKNOWN ? "–" : rssi + " dBm");
+        if (on) {
+            sb.append(" · ping ").append(ping < 0 ? "–" : ping >= AtemClient.PING_LOST ? "no answer" : ping + " ms");
+        }
+        signal.setText(sb);
     }
 
     private void showWidth() {
@@ -256,6 +412,7 @@ public final class MainActivity extends Activity {
         boolean ok = canDraw();
         allow.setVisibility(ok ? View.GONE : View.VISIBLE);
         start.setEnabled(ok);
+        test.setEnabled(ok);
         start.setText(running() ? "Stop tally" : "Start tally");
         if (!ok) status.setText("Step 1: allow \"Display over other apps\" so the border can show over DJI Fly.");
         else if (prefs.getString(Prefs.HOST, Prefs.DEFAULT_HOST).isEmpty()) status.setText("Enter the ATEM's IP address, or tap Find.");
@@ -406,17 +563,64 @@ public final class MainActivity extends Activity {
                 pool.awaitTermination(20, TimeUnit.SECONDS);
             } catch (InterruptedException ignored) {
             }
+            boolean direct = atem.get() != null;
+            String h = direct ? atem.get() : found.get();
+            // then the input names, so the drone's input can be picked by its name
+            JSONArray sources = null;
+            if (h != null) {
+                main.post(() -> status.setText("Found it at " + h + ". Reading the input names…"));
+                try {
+                    if (direct) {
+                        Map<Integer, String> names = AtemClient.readNames(h, 4000);
+                        if (!names.isEmpty()) {
+                            sources = new JSONArray();
+                            for (Map.Entry<Integer, String> e : names.entrySet()) {
+                                sources.put(new JSONObject().put("id", e.getKey()).put("label", e.getValue()));
+                            }
+                            prefs.edit().putString(Prefs.SOURCES, sources.toString()).apply();
+                        }
+                    } else {
+                        sources = new JSONObject(get("http://" + h + ":3000/api/tally", 3000)).getJSONArray("sources");
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            JSONArray src = sources;
             main.post(() -> {
                 find.setEnabled(true);
-                String h = atem.get() != null ? atem.get() : found.get();
                 if (h == null) {
                     status.setText("No ATEM found on this Wi-Fi. Is the ATEM plugged into the same router with a network cable? You can also type its IP.");
                     return;
                 }
+                String picked = src == null ? null : pickDrone(src);
                 host.setText(h);
                 saveHost();
-                status.setText((atem.get() != null ? "Found the ATEM at " : "Found the ATEM Switcher at ") + h + ". Pick the drone's ATEM input, then Start tally.");
+                if (src != null) setInputs(src);
+                String where = (direct ? "Found the ATEM at " : "Found the ATEM Switcher at ") + h + ". ";
+                status.setText(picked != null
+                        ? where + "Drone input: " + picked + " (picked by its name). Tap Start tally."
+                        : where + "Pick the drone's ATEM input below, then tap Start tally. "
+                        + "Tip: name that input DRONE on the ATEM and Find picks it by itself.");
             });
         }).start();
+    }
+
+    /** picks the input named DRONE / DJI / UAV; returns "5  DRONE", or null when there is none */
+    private String pickDrone(JSONArray sources) {
+        for (int i = 0; i < sources.length(); i++) {
+            JSONObject s = sources.optJSONObject(i);
+            if (s == null) continue;
+            String label = s.optString("label");
+            String up = label.toUpperCase(java.util.Locale.ROOT);
+            if (up.contains("DRON") || up.contains("DJI") || up.contains("UAV")) {
+                int id = s.optInt("id");
+                if (id != prefs.getInt(Prefs.INPUT, 1)) {
+                    prefs.edit().putInt(Prefs.INPUT, id).apply();
+                    restartIfRunning();
+                }
+                return id + "  " + label;
+            }
+        }
+        return null;
     }
 }
