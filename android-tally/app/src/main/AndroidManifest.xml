@@ -7,6 +7,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- connection meter: the Wi-Fi signal -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- Update button installs the new APK itself (Android asks first) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:label="ATEM Tally"
@@ -28,5 +32,29 @@
         <service
             android:name=".TallyService"
             android:exported="false" />
+
+        <!-- "Tally" on/off button in the quick settings -->
+        <service
+            android:name=".TallyTile"
+            android:exported="true"
+            android:icon="@drawable/ic_tile"
+            android:label="Tally"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name=".Updater$Result"
+            android:exported="false" />
+
+        <receiver
+            android:name=".Updater$Restart"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

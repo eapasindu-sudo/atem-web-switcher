@@ -9,13 +9,17 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.PixelFormat;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.WindowManager;
+import android.widget.Toast;
 
 import org.json.JSONObject;
 
@@ -27,12 +31,24 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 /**
- * Keeps a live connection to the ATEM Switcher's tally stream (GET /api/tally/events) and draws the
- * border over every app (DJI Fly included): red when this input is on PROGRAM, green on PREVIEW.
+ * Keeps a live connection to the ATEM (or the ATEM Switcher PC's tally stream) and draws the border over
+ * every app (DJI Fly included): red when this input is on PROGRAM, green on PREVIEW.
  */
 public final class TallyService extends Service {
     static final String STOP = "stop";
+    /** runs the 12-second border test: red, green, transition, no connection */
+    static final String TEST = "test";
+    /** the look changed in the settings: redraw, no reconnect */
+    static final String RESTYLE = "restyle";
     private static final String CHANNEL = "tally";
+    private static final long TEST_STEP = 3000;
+    private static final String[] TEST_LABELS = {"TEST: ON AIR", "TEST: PREVIEW", "TEST: TRANSITION", "TEST: NO CONNECTION"};
+    static final int UNKNOWN = Integer.MIN_VALUE;
+
+    // read by the settings screen for the connection meter
+    static volatile int rssi = UNKNOWN;   // Wi-Fi signal, dBm
+    static volatile int pingMs = -1;      // round trip to the ATEM / ATEM Switcher; -1 = not measured yet
+    static volatile boolean linkOk;       // following the ATEM right now
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private WindowManager wm;
@@ -48,9 +64,27 @@ public final class TallyService extends Service {
     private volatile int program, preview;
     private volatile boolean inTransition;
     private volatile String inputName = "";
+    private volatile boolean viaSwitcher;
+
+    // main thread only
+    private long testStart, sampleUntil;
+    private boolean lastOk, everOk, lostShown;
+    private String lastNotice;
 
     static void start(Context c) {
-        Intent i = new Intent(c, TallyService.class);
+        startFg(c, new Intent(c, TallyService.class));
+    }
+
+    static void test(Context c) {
+        startFg(c, new Intent(c, TallyService.class).setAction(TEST));
+    }
+
+    /** redraw with the new look when the tally is on */
+    static void restyle(Context c) {
+        if (Prefs.get(c).getBoolean(Prefs.RUNNING, false)) startFg(c, new Intent(c, TallyService.class).setAction(RESTYLE));
+    }
+
+    private static void startFg(Context c, Intent i) {
         if (Build.VERSION.SDK_INT >= 26) c.startForegroundService(i);
         else c.startService(i);
     }
@@ -62,19 +96,33 @@ public final class TallyService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null && STOP.equals(intent.getAction())) {
+        String action = intent == null ? null : intent.getAction();
+        if (STOP.equals(action)) {
             Prefs.get(this).edit().putBoolean(Prefs.RUNNING, false).apply();
             stopSelf();
             return START_NOT_STICKY;
         }
         startForeground(1, notification("Connecting…"));
+        boolean run = Prefs.get(this).getBoolean(Prefs.RUNNING, false);
+        if (!run && !TEST.equals(action) && testStart == 0) {
+            // restarted by Android after the user stopped it
+            stopSelf();
+            return START_NOT_STICKY;
+        }
         if (border == null) addBorder();
-        // (re)connect with the current settings
-        stopWorker();
-        Object token = new Object();
-        current = token;
-        worker = new Thread(() -> loop(token), "tally");
-        worker.start();
+        if (TEST.equals(action)) {
+            testStart = SystemClock.uptimeMillis();
+            if (run && worker == null) startWorker();
+        } else if (RESTYLE.equals(action) && worker != null) {
+            // show the new look for a moment even when this input is not on air
+            sampleUntil = SystemClock.uptimeMillis() + 1500;
+            drawIn(1600);
+        } else {
+            startWorker(); // (re)connect with the current settings
+        }
+        main.removeCallbacks(meterTick);
+        main.post(meterTick);
+        TallyTile.refresh(this);
         redraw();
         return START_STICKY;
     }
@@ -82,6 +130,9 @@ public final class TallyService extends Service {
     @Override
     public void onDestroy() {
         stopWorker();
+        main.removeCallbacksAndMessages(null);
+        linkOk = false;
+        pingMs = -1;
         if (border != null) {
             try {
                 wm.removeView(border);
@@ -89,7 +140,18 @@ public final class TallyService extends Service {
             }
             border = null;
         }
+        TallyTile.refresh(this);
         super.onDestroy();
+    }
+
+    private void startWorker() {
+        stopWorker();
+        lastOk = everOk = lostShown = false;
+        Object token = new Object();
+        current = token;
+        worker = new Thread(() -> loop(token), "tally");
+        worker.start();
+        new Thread(() -> switcherPing(token), "tally-ping").start();
     }
 
     private void stopWorker() {
@@ -134,8 +196,10 @@ public final class TallyService extends Service {
                 sleep(1000);
                 continue;
             }
+            pingMs = -1;
             // the ATEM Switcher PC (port 3000) gives names and works through Playout; else talk to the ATEM itself
-            if (host.contains(":") || switcherAnswers(host)) followSwitcher(token, host);
+            viaSwitcher = host.contains(":") || switcherAnswers(host);
+            if (viaSwitcher) followSwitcher(token, host);
             else followAtem(token, host);
             if (current != token) return;
             if (connected) {
@@ -156,6 +220,18 @@ public final class TallyService extends Service {
             return ok;
         } catch (Exception e) {
             return false;
+        }
+    }
+
+    /** the connection meter's round trip when the tally comes through the ATEM Switcher PC */
+    private void switcherPing(Object token) {
+        while (current == token) {
+            sleep(2000);
+            if (current != token || !viaSwitcher || !connected) continue;
+            String host = Prefs.get(this).getString(Prefs.HOST, Prefs.DEFAULT_HOST);
+            long t0 = System.nanoTime();
+            boolean ok = switcherAnswers(host);
+            if (current == token) pingMs = ok ? (int) Math.max(1, (System.nanoTime() - t0) / 1_000_000) : AtemClient.PING_LOST;
         }
     }
 
@@ -201,6 +277,8 @@ public final class TallyService extends Service {
                 }
             } catch (Exception ignored) {
             }
+        }).pinging(ms -> {
+            if (current == token) pingMs = ms;
         }).connectOnce(() -> current == token);
     }
 
@@ -235,24 +313,137 @@ public final class TallyService extends Service {
         }
     }
 
+    // ---- connection meter ----
+    private final Runnable meterTick = new Runnable() {
+        @Override
+        public void run() {
+            rssi = readRssi(TallyService.this);
+            draw();
+            main.postDelayed(this, 2000);
+        }
+    };
+
+    /** dBm of the Wi-Fi this controller is on, or UNKNOWN */
+    static int readRssi(Context c) {
+        try {
+            WifiManager w = (WifiManager) c.getApplicationContext().getSystemService(WIFI_SERVICE);
+            WifiInfo info = w == null ? null : w.getConnectionInfo();
+            int r = info == null ? UNKNOWN : info.getRssi();
+            return r <= -127 || r >= 0 ? UNKNOWN : r;
+        } catch (Exception e) {
+            return UNKNOWN;
+        }
+    }
+
+    /** 0-4 bars from the Wi-Fi signal and the round trip to the ATEM */
+    static int bars(boolean ok, int rssi, int ping) {
+        if (!ok) return 0;
+        int b = rssi == UNKNOWN ? 4 : rssi >= -55 ? 4 : rssi >= -65 ? 3 : rssi >= -75 ? 2 : 1;
+        if (ping >= 400) b = Math.min(b, 1);
+        else if (ping >= 150) b = Math.min(b, 2);
+        else if (ping >= 60) b = Math.min(b, 3);
+        return b;
+    }
+
     // ---- drawing ----
     private void redraw() {
-        main.post(() -> {
-            SharedPreferences p = Prefs.get(this);
-            int input = p.getInt(Prefs.INPUT, 1);
-            boolean onAir = connected && atem && (program == input || (inTransition && preview == input));
-            boolean onPreview = connected && atem && !onAir && preview == input && p.getBoolean(Prefs.PREVIEW, true);
-            int color = onAir ? BorderView.RED : onPreview ? BorderView.GREEN : 0;
-            String label = !p.getBoolean(Prefs.LABEL, false) || color == 0 ? null : onAir ? "ON AIR" : "PREVIEW";
-            float density = getResources().getDisplayMetrics().density;
-            int width = Math.round(p.getInt(Prefs.WIDTH, 6) * density);
-            if (border != null) border.show(color, width, label, !connected || !atem);
-            String status = !connected ? "Looking for the ATEM at " + p.getString(Prefs.HOST, Prefs.DEFAULT_HOST)
-                    : !atem ? "ATEM Switcher has no ATEM connected"
-                    : inputName + (onAir ? ": ON AIR" : onPreview ? ": PREVIEW" : ": not on air");
+        main.post(this::draw);
+    }
+
+    private final Runnable drawLater = this::draw;
+
+    /** one draw at a set time (test steps, end of the look sample) */
+    private void drawIn(long ms) {
+        main.removeCallbacks(drawLater);
+        main.postDelayed(drawLater, ms);
+    }
+
+    private void draw() {
+        SharedPreferences p = Prefs.get(this);
+        long now = SystemClock.uptimeMillis();
+        int input = p.getInt(Prefs.INPUT, 1);
+        boolean running = worker != null;
+        boolean ok = running && connected && atem;
+        linkOk = ok;
+        boolean onAir = ok && (program == input || (inTransition && preview == input));
+        boolean onPreview = ok && !onAir && preview == input && p.getBoolean(Prefs.PREVIEW, true);
+
+        BorderView.Look look = new BorderView.Look();
+        look.color = onAir ? BorderView.RED : onPreview ? BorderView.GREEN : 0;
+        look.pulse = onAir && inTransition && p.getBoolean(Prefs.PULSE, true);
+        look.label = !p.getBoolean(Prefs.LABEL, false) || look.color == 0 ? null : onAir ? "ON AIR" : "PREVIEW";
+        look.lost = running && !ok;
+        look.widthPx = Math.round(p.getInt(Prefs.WIDTH, 6) * getResources().getDisplayMetrics().density);
+        look.style = p.getInt(Prefs.STYLE, BorderView.STYLE_FULL);
+        look.sides = Prefs.sideBits(p.getInt(Prefs.SIDES, 0));
+        look.opacity = p.getInt(Prefs.OPACITY, 100);
+        look.bars = running && p.getBoolean(Prefs.METER, false) ? bars(ok, rssi, pingMs) : -1;
+
+        if (testStart != 0) {
+            long t = now - testStart;
+            int step = (int) (t / TEST_STEP);
+            if (step < TEST_LABELS.length) {
+                look.color = step == 0 || step == 2 ? BorderView.RED : step == 1 ? BorderView.GREEN : 0;
+                look.pulse = step == 2;
+                look.lost = step == 3;
+                look.label = TEST_LABELS[step];
+                drawIn(TEST_STEP - t % TEST_STEP + 20);
+            } else {
+                testStart = 0;
+                message("Test done", BorderView.GREEN);
+                if (!running) {
+                    // only started for the test
+                    if (border != null) border.show(new BorderView.Look());
+                    main.removeCallbacks(meterTick);
+                    main.postDelayed(() -> {
+                        if (worker == null && testStart == 0) stopSelf();
+                    }, 3000);
+                    return;
+                }
+            }
+        } else if (now < sampleUntil && look.color == 0) {
+            look.color = BorderView.RED;
+            look.label = p.getBoolean(Prefs.LABEL, false) ? "ON AIR" : null;
+        }
+        if (border != null) border.show(look);
+        if (running) connectionMessages(ok);
+
+        String status = !running ? "Border test"
+                : !connected ? "Looking for the ATEM at " + p.getString(Prefs.HOST, Prefs.DEFAULT_HOST)
+                : !atem ? "ATEM Switcher has no ATEM connected"
+                : inputName + (onAir ? ": ON AIR" : onPreview ? ": PREVIEW" : ": not on air");
+        if (!status.equals(lastNotice)) {
+            lastNotice = status;
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             nm.notify(1, notification(status));
-        });
+        }
+    }
+
+    /** "Tally connected", then "connection lost" (after 2.5 s, so a short drop shows nothing) and "Reconnected" */
+    private void connectionMessages(boolean ok) {
+        if (ok == lastOk) return;
+        lastOk = ok;
+        main.removeCallbacks(lostLater);
+        if (ok) {
+            if (lostShown) message("Tally reconnected", BorderView.GREEN);
+            else if (!everOk) message("Tally connected: " + inputName, BorderView.GREEN);
+            everOk = true;
+            lostShown = false;
+        } else if (everOk) {
+            main.postDelayed(lostLater, 2500);
+        }
+    }
+
+    private final Runnable lostLater = () -> {
+        if (lastOk || worker == null) return;
+        lostShown = true;
+        message("Tally connection lost: reconnecting…", BorderView.ORANGE);
+    };
+
+    private void message(String text, int color) {
+        if (!Prefs.get(this).getBoolean(Prefs.MESSAGES, true) && !text.startsWith("Test")) return;
+        if (border != null) border.message(text, color, 3000);
+        else Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
     }
 
     private Notification notification(String text) {

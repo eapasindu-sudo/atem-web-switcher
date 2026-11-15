@@ -22,7 +22,9 @@ final class AtemClient {
 
     private static final int PORT = 9910;
     private static final int MAX_PACKET_ID = 1 << 15;
-    private static final int FLAG_ACK_REQUEST = 0x01, FLAG_NEW_SESSION = 0x02, FLAG_ACK_REPLY = 0x10;
+    private static final int FLAG_ACK_REQUEST = 0x01, FLAG_NEW_SESSION = 0x02, FLAG_RETRANSMIT_REQUEST = 0x08, FLAG_ACK_REPLY = 0x10;
+    /** how often the connection meter measures the round trip */
+    private static final long PING_EVERY_MS = 2000;
     private static final byte[] HELLO = {
         0x10, 0x14, 0x53, (byte) 0xab, 0, 0, 0, 0, 0, 0x3a, 0, 0, 0x01, 0, 0, 0, 0, 0, 0, 0
     };
@@ -33,10 +35,40 @@ final class AtemClient {
     private int program = -1, preview = -1;
     private boolean inTransition;
     private final Map<Integer, String> names = new TreeMap<>();
+    private java.util.function.IntConsumer onPing;
 
     AtemClient(String host, Listener listener) {
         this.host = host;
         this.listener = listener;
+    }
+
+    /**
+     * measure the round trip to the ATEM every 2 s: an empty packet that asks for an ack, the same keep-alive
+     * the ATEM itself sends. ms, or PING_LOST after 3 s with no answer.
+     */
+    AtemClient pinging(java.util.function.IntConsumer onPing) {
+        this.onPing = onPing;
+        return this;
+    }
+
+    static final int PING_LOST = 9999;
+
+    /** the ATEM's input names, read from a short connection (Find uses it to pick the drone input) */
+    static Map<Integer, String> readNames(String host, long maxMs) {
+        long end = System.currentTimeMillis() + maxMs;
+        long[] last = {0};
+        Map<Integer, String> out = new TreeMap<>();
+        new AtemClient(host, (ok, pgm, pvw, trans, names) -> {
+            if (!ok || names.isEmpty()) return;
+            out.clear();
+            out.putAll(names);
+            last[0] = System.currentTimeMillis();
+        }).connectOnce(() -> {
+            long now = System.currentTimeMillis();
+            // the ATEM sends its whole state in one burst: stop when it has been quiet for a moment
+            return now < end && (last[0] == 0 || now - last[0] < 700);
+        });
+        return out;
     }
 
     /** answers a hello? (used by Find) */
@@ -70,6 +102,9 @@ final class AtemClient {
         boolean established = false;
         long lastHeard = System.currentTimeMillis(), lastHello = 0;
         Map<Integer, byte[]> ahead = new HashMap<>();
+        // our own packets are only pings, one at a time, so the ATEM always gets them in order
+        int nextId = 1, pingId = -1;
+        long pingFirst = 0, pingLast = 0, nextPing = 0;
         s.send(new DatagramPacket(HELLO, HELLO.length, addr, PORT));
         lastHello = System.currentTimeMillis();
 
@@ -79,6 +114,20 @@ final class AtemClient {
             if (!established && now - lastHello > 1000) {
                 s.send(new DatagramPacket(HELLO, HELLO.length, addr, PORT));
                 lastHello = now;
+            }
+            if (established && onPing != null) {
+                if (pingId < 0 && now >= nextPing) {
+                    pingId = nextId;
+                    nextId = (nextId + 1) % MAX_PACKET_ID;
+                    pingFirst = System.nanoTime();
+                    pingLast = now;
+                    ping(s, addr, sessionId, pingId);
+                } else if (pingId >= 0 && now - pingLast > 500) {
+                    // lost on the way: send the same one again
+                    pingLast = now;
+                    ping(s, addr, sessionId, pingId);
+                    if (System.nanoTime() - pingFirst > 3_000_000_000L) onPing.accept(PING_LOST);
+                }
             }
             DatagramPacket p = new DatagramPacket(buf, buf.length);
             try {
@@ -93,10 +142,22 @@ final class AtemClient {
             sessionId = u16(buf, 2);
             int remoteId = u16(buf, 10);
 
+            if (pingId >= 0 && (flags & FLAG_ACK_REPLY) != 0 && u16(buf, 4) == pingId) {
+                onPing.accept((int) Math.max(1, (System.nanoTime() - pingFirst) / 1_000_000));
+                pingId = -1;
+                nextPing = System.currentTimeMillis() + PING_EVERY_MS;
+            }
+            if (pingId >= 0 && (flags & FLAG_RETRANSMIT_REQUEST) != 0) {
+                pingLast = System.currentTimeMillis();
+                ping(s, addr, sessionId, pingId);
+            }
+
             if ((flags & FLAG_NEW_SESSION) != 0) {
                 established = true;
                 lastId = remoteId;
                 ahead.clear();
+                nextId = 1;
+                pingId = -1;
                 ack(s, addr, sessionId, remoteId);
                 continue;
             }
@@ -122,6 +183,18 @@ final class AtemClient {
                 ack(s, addr, sessionId, lastId); // a resend of one we already have
             }
         }
+    }
+
+    private static void ping(DatagramSocket s, InetAddress addr, int sessionId, int packetId) throws Exception {
+        byte[] b = new byte[12];
+        int head = (FLAG_ACK_REQUEST << 11) | 12;
+        b[0] = (byte) (head >> 8);
+        b[1] = (byte) head;
+        b[2] = (byte) (sessionId >> 8);
+        b[3] = (byte) sessionId;
+        b[10] = (byte) (packetId >> 8);
+        b[11] = (byte) packetId;
+        s.send(new DatagramPacket(b, b.length, addr, PORT));
     }
 
     private static void ack(DatagramSocket s, InetAddress addr, int sessionId, int packetId) throws Exception {
